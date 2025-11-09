@@ -1,18 +1,3 @@
-// cubist_monsters_intro_v5f.cpp
-// Monsters Inc–style montage -> cubist portrait of Dave Brubeck.
-// v5f changes over v5e:
-//  • Scenes 8 & 9: evitar solapado de círculos (lentes/ojos). Ajusté los "highlights" (GLAS_HL_*)
-//    para que sean más pequeños y no crucen el centro. Mantengo los aros del armazón finos y separados.
-//  • Cejas más altas (más separación vs ojos).
-//  • Pelo superior aún más tranquilo en la escena final y sin micro‑wiggle.
-//
-// Build (Windows / MSYS2):
-//   g++ cubist_monsters_intro_v5f.cpp -lfreeglut -lopengl32 -lglu32 -lwinmm -O2 -o cubist_monsters_intro_v5f.exe
-// Linux:
-//   g++ cubist_monsters_intro_v5f.cpp -lglut -lGLU -lGL -O2 -o cubist_monsters_intro_v5f
-//
-// Controls: P=play/resync audio (Windows), Space=pause, , and . = nudge sync ±20ms, Esc=exit
-
 #ifdef _WIN32
   #include <GL/freeglut.h>
 #else
@@ -32,8 +17,8 @@
 
 static const double PI=3.14159265358979323846;
 
-// -------- Timing / Music --------
-static const double BPM=168.0; // 5/4
+// -------- Tiempo / Música --------
+static const double BPM=168.0; // compás 5/4
 static const int SIG_BEATS=5;
 static double OFFSET_SEC=0.0;
 static bool gPaused=false;
@@ -52,29 +37,29 @@ inline double easeExpoOut(double t){ t=clamp01(t); return 1.0 - pow(2.0, -8.0*t)
 inline double easeBackIn(double t){ t=clamp01(t); return t*t*(2.7*t-1.7); }
 inline double easeCubic(double t){ t=clamp01(t); return t*t*(3-2*t); }
 
-// -------- Palette --------
+// -------- Paleta --------
 struct Col{ float r,g,b; };
 static Col C[] = {
-  {0.02f,0.02f,0.03f}, // 0 near black (ONLY backdrop falloff)
+  {0.02f,0.02f,0.03f}, // 0 casi negro
   {0.20f,0.90f,0.95f}, // 1 aqua
-  {1.00f,0.84f,0.10f}, // 2 vivid yellow
-  {1.00f,0.28f,0.55f}, // 3 hot pink
-  {0.10f,0.92f,0.35f}, // 4 lime
-  {0.98f,0.52f,0.16f}, // 5 orange
-  {0.73f,0.52f,1.00f}, // 6 purple
-  {0.20f,0.65f,1.00f}, // 7 sky
-  {0.98f,0.98f,1.00f}, // 8 off-white (eyes/shine)
-  {0.93f,0.80f,0.70f}, // 9 skin light
-  {0.80f,0.68f,0.58f}, // 10 skin shadow
-  {1.00f,0.10f,0.10f}, // 11 red accent
-  {0.10f,0.10f,0.12f}, // 12 dark gray (panels)
-  {0.15f,0.18f,0.25f}, // 13 ink (pupils/frames) — dark, not black
-  {0.25f,0.33f,0.55f}, // 14 charcoal-blue (frames)
+  {1.00f,0.84f,0.10f}, // 2 amarillo vivo
+  {1.00f,0.28f,0.55f}, // 3 rosa intenso
+  {0.10f,0.92f,0.35f}, // 4 lima
+  {0.98f,0.52f,0.16f}, // 5 naranja
+  {0.73f,0.52f,1.00f}, // 6 morado
+  {0.20f,0.65f,1.00f}, // 7 cielo
+  {0.98f,0.98f,1.00f}, // 8 blanco cálido
+  {0.93f,0.80f,0.70f}, // 9 piel claro
+  {0.80f,0.68f,0.58f}, // 10 piel sombra
+  {1.00f,0.10f,0.10f}, // 11 rojo acento
+  {0.10f,0.10f,0.12f}, // 12 gris oscuro 
+  {0.15f,0.18f,0.25f}, // 13 tinta
+  {0.25f,0.33f,0.55f}, // 14 azul carbón
 };
 
 static void setRGBA(float r,float g,float b,float a=1.0f){ glColor4f(r,g,b,a); }
 
-// -------- Primitives --------
+// -------- Primitivas --------
 static void rectWH(float w,float h){
   glBegin(GL_TRIANGLE_FAN);
   glVertex2f(-w*0.5f,-h*0.5f); glVertex2f(+w*0.5f,-h*0.5f);
@@ -107,17 +92,17 @@ static void arcBand(float r,float a0,float a1,float th=0.06f,int seg=96){
     glVertex2f((r+th)*c,(r+th)*s); glVertex2f((r-th)*c,(r-th)*s); } glEnd();
 }
 
-// -------- Actors / personalities --------
+// -------- Actores / personalidades --------
 enum Shape{ S_RECT, S_CIRC, S_RING, S_TRI_UP, S_TRI_DOWN, S_OVAL, S_ARC };
 enum Persona{ PR_LEADER, PR_WOBBLE, PR_BOUNCER, PR_SPINNER, PR_SNEAK, PR_SASSY, PR_NERVOUS, PR_STOIC, PR_PENDULUM, PR_SQUISH };
 
 struct Actor{
   Shape shape; Persona pr; int col; float alpha;
-  float x,y,sx,sy,ang;         // current
-  float tx,ty,tsx,tsy,tang;    // target
+  float x,y,sx,sy,ang;         // valores actuales
+  float tx,ty,tsx,tsy,tang;    // objetivo
   bool on;
-  float a0,a1;                 // for arcs OR ring radii when S_RING (r0=a0, r1=a1; 0->defaults)
-  float gainA, gainB;          // personality gains
+  float a0,a1;                 // para arcos O radios del anillo cuando S_RING
+  float gainA, gainB;          // ganancias de personalidad
 };
 
 static std::vector<Actor> G;
@@ -175,7 +160,7 @@ static void applyPersona(Actor& a, double bt){
   }
 }
 
-// -------- Portrait IDs --------
+// -------- IDs del retrato --------
 enum FigID{
   F_FACE, F_MOUTH, F_EYE_L, F_EYE_R, F_PUPIL_L, F_PUPIL_R, F_NOSE,
   F_HAIR_TOP, F_HAIR_L, F_HAIR_R,
@@ -192,7 +177,7 @@ static Actor& A(int id){ return G[id]; }
 
 static void initFigures(){
   G.clear();
-  // Geometry
+  // Geometría
   G.push_back(make(S_RECT,    PR_LEADER, 9,    0,-0.05f, 0.80f,0.95f, 0));                                  // F_FACE
   G.push_back(make(S_ARC,     PR_SASSY,  3,    0,-0.32f, 1,1,0, 0,false,-0.25f*PI,0.25f*PI, 1.0f,1.2f));    // F_MOUTH
   G.push_back(make(S_RING,    PR_WOBBLE, 8,   -0.34f,0.22f, 0.60f,0.60f,0));                                // F_EYE_L
@@ -204,7 +189,6 @@ static void initFigures(){
   G.push_back(make(S_RECT,    PR_SNEAK,  7,   -0.46f,0.30f, 0.14f,0.70f,0));                                // F_HAIR_L
   G.push_back(make(S_RECT,    PR_SNEAK,  7,    0.46f,0.30f, 0.14f,0.70f,0));                                // F_HAIR_R
 
-  // Cejas aún más altas
   G.push_back(make(S_RECT,    PR_SASSY,  6,   -0.35f,0.52f, 0.50f,0.08f,-6));                               // F_BROW_L
   G.push_back(make(S_RECT,    PR_SASSY,  6,    0.35f,0.51f, 0.50f,0.08f, 6));                               // F_BROW_R
 
@@ -214,16 +198,13 @@ static void initFigures(){
   G.push_back(make(S_TRI_DOWN,PR_LEADER,1,     0,-0.95f, 0.36f,0.36f,0));                                   // F_TIE_TOP
   G.push_back(make(S_TRI_DOWN,PR_LEADER,1,     0,-1.22f, 0.60f,0.60f,0));                                   // F_TIE_BOTTOM
 
-  // Patas del armazón (delgadas)
   G.push_back(make(S_RECT,    PR_STOIC,  14,  -0.90f,0.28f, 0.90f,0.045f,0));                               // F_ARM_L
   G.push_back(make(S_RECT,    PR_STOIC,  14,   0.90f,0.28f, 0.90f,0.045f,0));                               // F_ARM_R
 
-  // Aros del armazón: finos y separados (no se tocan).
   G.push_back(make(S_RING,    PR_STOIC,  14,  -0.34f,0.22f, 0.66f,0.66f,0, 0,true, 0.48f,0.50f));           // F_GLAS_L
   G.push_back(make(S_RING,    PR_STOIC,  14,   0.34f,0.22f, 0.66f,0.66f,0, 0,true, 0.48f,0.50f));           // F_GLAS_R
   G.push_back(make(S_RECT,    PR_STOIC,  14,   0.00f,0.22f, 0.24f,0.045f,0));                               // F_GLAS_BR
 
-  // Extras
   G.push_back(make(S_RECT,    PR_SQUISH, 4,   -0.22f,-0.10f, 0.40f,0.28f, 10));                              // F_CHEEK_L
   G.push_back(make(S_RECT,    PR_SQUISH, 2,    0.22f,-0.12f, 0.42f,0.26f,-10));                              // F_CHEEK_R
   G.push_back(make(S_RECT,    PR_PENDULUM,6,    0.00f,0.46f, 0.42f,0.14f, 0));                               // F_FOREHEAD
@@ -232,7 +213,6 @@ static void initFigures(){
   G.push_back(make(S_ARC,     PR_STOIC,  14,   -0.04f,0.06f,1,1,0, 0,false, 0.65f*PI,0.85f*PI));             // F_NOSTRIL_L
   G.push_back(make(S_ARC,     PR_STOIC,  14,    0.04f,0.06f,1,1,0, 0,false, 0.15f*PI,0.35f*PI));             // F_NOSTRIL_R
 
-  // Highlights en lentes: más pequeños para NO solapar. Uso radios personalizados y escala neutra.
   G.push_back(make(S_RING,    PR_SQUISH, 8,   -0.34f,0.22f,1.0f,1.0f,0, 0,true, 0.28f,0.32f));               // F_GLAS_HL_L
   G.push_back(make(S_RING,    PR_SQUISH, 8,    0.34f,0.22f,1.0f,1.0f,0, 0,true, 0.28f,0.32f));               // F_GLAS_HL_R
 
@@ -244,7 +224,7 @@ static void initFigures(){
   VIS.assign(F_COUNT, 0.0f);
 }
 
-// -------- Panels --------
+// -------- Paneles --------
 struct Panel{ float x,y,w,h; float ox,oy; };
 static std::vector<Panel> PAN;
 static void buildPanels(){
@@ -266,57 +246,57 @@ static void drawPanels(float k, float alpha=0.92f){
   }
 }
 
-// -------- Timeline --------
+// -------- Línea de tiempo --------
 struct Scene{ double b0,b1; };
 static std::vector<Scene> TL;
 static void addScene(double beats){ double b=TL.empty()?0.0:TL.back().b1; TL.push_back({b,b+beats}); }
 static void buildTimeline(){
   TL.clear();
-  addScene(12); // 0 Panels in (longer)
-  addScene(6);  // 1 Tease: face
-  addScene(6);  // 2 Tease: mouth
-  addScene(6);  // 3 Tease: eye
-  addScene(8);  // 4 Panels out
+  addScene(12); // 0 Entrada de paneles
+  addScene(6);  // 1 Presentación: rostro
+  addScene(6);  // 2 Presentación: boca
+  addScene(6);  // 3 Presentación: ojo
+  addScene(8);  // 4 Salida de paneles
 
-  addScene(10); // 5 eye rings
-  addScene(6);  // 6 pupils
-  addScene(10); // 7 glasses assemble
+  addScene(10); // 5 anillos de ojos
+  addScene(6);  // 6 pupilas
+  addScene(10); // 7 ensamblado de lentes
 
-  addScene(6);  // 8 eyes+glasses+MOUTH
-  addScene(8);  // 9 + NOSE (hop-in)
+  addScene(6);  // 8 ojos+lentes+BOCA
+  addScene(8);  // 9 + NARIZ
 
-  addScene(6);  // 10 cheeks
-  addScene(6);  // 11 forehead & jaw & temples
+  addScene(6);  // 10 mejillas
+  addScene(6);  // 11 frente mandíbula sienes
 
-  addScene(4);  // 12 top hair
-  addScene(4);  // 13 side hair
+  addScene(4);  // 12 copete
+  addScene(4);  // 13 laterales del cabello
 
-  addScene(6);  // 14 brows + show eyes
-  addScene(5);  // 15 ears & chin
-  addScene(5);  // 16 tie & face lift
+  addScene(6);  // 14 cejas + mostrar ojos
+  addScene(5);  // 15 orejas barbilla
+  addScene(5);  // 16 corbata elevar rostro
 
-  addScene(7);  // 17 hop-in assembly
-  addScene(4);  // 18 reveal wobble
-  addScene(2);  // 19 freeze
+  addScene(7);  // 17 ensamblado con saltos
+  addScene(4);  // 18 reveal con vaivén
+  addScene(2);  // 19 congelar
 }
 static int sceneOf(double bt){
   for(size_t i=0;i<TL.size();++i) if(bt>=TL[i].b0 && bt<TL[i].b1) return (int)i;
   return (int)TL.size()-1;
 }
 
-// -------- Utilities --------
+// -------- Utilidades --------
 static void drawBG(){ glBegin(GL_QUADS); setRGBA(0,0,0,1); glVertex2f(-1,-1); glVertex2f(+1,-1); glVertex2f(+1,+1); glVertex2f(-1,+1); glEnd(); }
-// Overload 1: initializer_list
+
 static void wantOnly(std::initializer_list<int> ids){
   std::fill(VIS.begin(), VIS.end(), 0.0f);
   for(int id:ids) if(id>=0 && id<F_COUNT) VIS[id]=1.0f;
 }
-// Overload 2: vector<int>
+
 static void wantOnlyVec(const std::vector<int>& ids){
   std::fill(VIS.begin(), VIS.end(), 0.0f);
   for(int id:ids) if(id>=0 && id<F_COUNT) VIS[id]=1.0f;
 }
-// helper for spotlight
+// auxiliar
 static void spotlight(float cx,float cy,float r){
   int seg=96;
   glBegin(GL_TRIANGLE_FAN);
@@ -334,16 +314,16 @@ static float hopWave(double bt, double phase){
   return v;
 }
 
-// Custom draw order to ensure top layering of key features
+// Orden de dibujo 
 static void drawAllWithTop(double bt){
   std::vector<int> tops = {F_BROW_L,F_BROW_R,F_EYE_L,F_EYE_R,F_PUPIL_L,F_PUPIL_R,F_GLAS_L,F_GLAS_R,F_GLAS_BR,F_NOSE,F_MOUTH};
   auto isTop=[&](int id){ return std::find(tops.begin(),tops.end(),id)!=tops.end(); };
-  // Base pass
+  
   for(int i=0;i<F_COUNT;++i){
     if(isTop(i)) continue;
     drawActor(G[i]);
   }
-  // Top pass
+  
   for(int id:tops){
     auto& k=G[id]; float br = 1.0f + 0.05f*(float)pulse1(bt);
     if(id==F_MOUTH || id==F_NOSE){ k.sx = k.tsx * br; k.sy = k.tsy * (1.0f/br); }
@@ -351,7 +331,7 @@ static void drawAllWithTop(double bt){
   }
 }
 
-// Fade overlay between scenes
+// Fundido superpuesto entre escenas
 static void fadeOverlay(double bt){
   int si=sceneOf(bt);
   double b0=TL[si].b0, b1=TL[si].b1;
@@ -373,17 +353,17 @@ static void fadeOverlay(double bt){
   }
 }
 
-// -------- Update per scene --------
+// -------- Actualización por escena --------
 static void updateAndDraw(double bt){
   int si=sceneOf(bt);
   double b0=TL[si].b0, b1=TL[si].b1, u=clamp01((bt-b0)/(b1-b0)), e=smooth(u);
 
-  // Panels
+  // Paneles
   if(si==0) buildPanels();
   if(si<=4) drawPanels(si==0? (float)easeOvershoot(e) : (si==4? (float)(1.0 - easeOvershoot(e)) : 1.0f), 0.92f);
   if(si==5 || si==7 || si==14 || si==17) drawPanels(1.0f, 0.80f);
 
-  // Set scene targets
+  // Definir objetivos por escena
   switch(si){
     case 0: wantOnly({}); break;
     case 1: wantOnly({F_FACE}); break;
@@ -416,7 +396,7 @@ static void updateAndDraw(double bt){
     } break;
   }
 
-  // Animate special motions
+  // Animaciones específicas
   switch(si){
     case 5: {
       auto &EL=A(F_EYE_L), &ER=A(F_EYE_R);
@@ -471,11 +451,10 @@ static void updateAndDraw(double bt){
         auto& kf=G[id]; float br = 1.0f + 0.05f*(float)pulse1(bt);
         kf.sx = kf.tsx * br; kf.sy = kf.tsy * (1.0f/br);
       }
-      // Pelo superior mucho más tranquilo y sin micro‑wiggle
+      
       auto &HT = A(F_HAIR_TOP);
-      HT.ang = HT.tang + 2.0f*(float)sin(2*PI*(bt*0.10)); // ±2° suave
+      HT.ang = HT.tang + 2.0f*(float)sin(2*PI*(bt*0.10)); 
 
-      // gentle micro-wiggle (excluir pelo superior)
       for(int i=0;i<F_COUNT;++i){
         if(i==F_HAIR_TOP) continue;
         auto& a=G[i];
@@ -487,7 +466,6 @@ static void updateAndDraw(double bt){
     default: break;
   }
 
-  // Update alpha & personas
   for(int i=0;i<F_COUNT;++i){
     auto& a=G[i];
     a.alpha += (VIS[i] - a.alpha) * 0.14f;
@@ -496,19 +474,18 @@ static void updateAndDraw(double bt){
     applyPersona(a, bt);
   }
 
-  // Draw actors
   drawAllWithTop(bt);
 
-  // Spotlights
+  // Reflectores por escena
   if(si==1) spotlight(A(F_FACE).tx, A(F_FACE).ty, (float)mixd(1.8,0.65,e));
   if(si==2) spotlight(A(F_MOUTH).tx, A(F_MOUTH).ty, (float)mixd(1.6,0.60,e));
   if(si==3) spotlight(A(F_EYE_L).tx, A(F_EYE_L).ty, (float)mixd(1.4,0.60,e));
 
-  // Scene overlay
+  // Fundidos entre escenas
   fadeOverlay(bt);
 }
 
-// -------- GLUT plumbing --------
+// -------- Integración con GLUT --------
 static void reshape(int w,int h){
   glViewport(0,0,w,h);
   glMatrixMode(GL_PROJECTION); glLoadIdentity();
@@ -546,8 +523,8 @@ static void keyb(unsigned char k,int,int){
 int main(int argc,char** argv){
   glutInit(&argc, argv);
   glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGBA);
-  glutInitWindowSize(1920,1080);
-  glutCreateWindow("Monsters-style Cubist Intro — Take Five v5f");
+  glutInitWindowSize(600,600);
+  glutCreateWindow("GPC Proyecto 2D");
   glutDisplayFunc(display);
   glutReshapeFunc(reshape);
   glutIdleFunc(idle);
