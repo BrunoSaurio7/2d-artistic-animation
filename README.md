@@ -1,5 +1,5 @@
 # 2d-artistic-animation
-2D artistic cubist style animation using GL
+2D artistic cubist style animation using openGL
 # Requirements
 - MSYS2 installed (https://www.msys2.org/)
 - On MSYS2 MinGW x64 console run:
