@@ -1,18 +1,14 @@
-// cubist_monsters_intro_v3.cpp
+// cubist_monsters_intro_v4_fix.cpp
 // Monsters Inc–style montage -> cubist portrait of Dave Brubeck.
-// v3 changes:
-// - Slower overall pacing (~36 s ≈ 101 beats @ 168 BPM), scenes slightly longer than v2
-// - Keep eyes and glasses as SEPARATE scenes AND ensure left/right circles DO NOT TOUCH
-//   * Eyes rings: centers at ±0.34, ring scale 0.60 (outer radius ≈ 0.30)
-//   * Glasses rings: centers at ±0.44, ring scale 0.72 (outer radius ≈ 0.36)
-//   -> Distances (0.68 and 0.88) are > 2*radius, so no contact
-// - Final assembly: each piece hops in on-beat with natural bounce; once all together,
-//   a short subtle collective "reveal wobble", then freeze
+// v4 FIXED:
+// - Removed duplicate declaration of std::vector<Actor> G
+// - Clearer highlight logic for glasses halos
+// Timeline ~38 s (≈ 106 beats @168 BPM)
 //
 // Build (Windows / MSYS2):
-//   g++ cubist_monsters_intro_v3.cpp -lfreeglut -lopengl32 -lglu32 -lwinmm -O2 -o cubist_monsters_intro_v3.exe
+//   g++ cubist_monsters_intro_v4_fix.cpp -lfreeglut -lopengl32 -lglu32 -lwinmm -O2 -o cubist_monsters_intro_v4.exe
 // Linux:
-//   g++ cubist_monsters_intro_v3.cpp -lglut -lGLU -lGL -O2 -o cubist_monsters_intro_v3
+//   g++ cubist_monsters_intro_v4_fix.cpp -lglut -lGLU -lGL -O2 -o cubist_monsters_intro_v4
 //
 // Controls: P=play/resync audio (Windows), Space=pause, , and . = nudge sync ±20ms, Esc=exit
 
@@ -53,10 +49,10 @@ inline double easeOvershoot(double t){ t=clamp01(t); double e=smooth(t); return 
 inline double easeExpoOut(double t){ t=clamp01(t); return 1.0 - pow(2.0, -8.0*t); }
 inline double easeBackIn(double t){ t=clamp01(t); return t*t*(2.7*t-1.7); }
 
-// -------- Palette (bright / no pure black on figures) --------
+// -------- Palette --------
 struct Col{ float r,g,b; };
 static Col C[] = {
-  {0.02f,0.02f,0.03f}, // 0 near black (ONLY for panels/spotlight falloff)
+  {0.02f,0.02f,0.03f}, // 0 near black (ONLY backdrop falloff)
   {0.20f,0.90f,0.95f}, // 1 aqua
   {1.00f,0.84f,0.10f}, // 2 vivid yellow
   {1.00f,0.28f,0.55f}, // 3 hot pink
@@ -69,8 +65,8 @@ static Col C[] = {
   {0.80f,0.68f,0.58f}, // 10 skin shadow
   {1.00f,0.10f,0.10f}, // 11 red accent
   {0.10f,0.10f,0.12f}, // 12 dark gray (panels)
-  {0.15f,0.18f,0.25f}, // 13 ink (for pupils / frames) — dark, not black
-  {0.25f,0.33f,0.55f}, // 14 charcoal-blue (frames alternate)
+  {0.15f,0.18f,0.25f}, // 13 ink (pupils/frames) — dark, not black
+  {0.25f,0.33f,0.55f}, // 14 charcoal-blue (frames)
 };
 
 static void setRGBA(float r,float g,float b,float a=1.0f){ glColor4f(r,g,b,a); }
@@ -118,11 +114,10 @@ struct Actor{
   float tx,ty,tsx,tsy,tang;    // target
   bool on;
   float a0,a1;                 // arc params
-  // personality gains
-  float gainA, gainB;
+  float gainA, gainB;          // personality gains
 };
 
-static std::vector<Actor> G;
+static std::vector<Actor> G; // single, global
 
 static Actor make(Shape s, Persona p,int col,
                   float tx,float ty,float tsx,float tsy,float tang,
@@ -187,10 +182,10 @@ static Actor& A(int id){ return G[id]; }
 
 static void initFigures(){
   G.clear();
-  // Main features (adjusted eye/glasses geometry to avoid circle touches)
+  // Geometry (eyes & glasses separated, non-touching)
   G.push_back(make(S_RECT,    PR_LEADER, 9,    0,-0.05f, 0.80f,0.95f, 0));                                  // F_FACE
   G.push_back(make(S_ARC,     PR_SASSY,  3,    0,-0.32f, 1,1,0, 0,false,-0.25f*PI,0.25f*PI, 1.0f,1.2f));    // F_MOUTH
-  G.push_back(make(S_RING,    PR_WOBBLE, 8,   -0.34f,0.22f, 0.60f,0.60f,0));                                // F_EYE_L (outer ≈ 0.30)
+  G.push_back(make(S_RING,    PR_WOBBLE, 8,   -0.34f,0.22f, 0.60f,0.60f,0));                                // F_EYE_L
   G.push_back(make(S_RING,    PR_WOBBLE, 8,    0.34f,0.22f, 0.60f,0.60f,0));                                // F_EYE_R
   G.push_back(make(S_CIRC,    PR_NERVOUS,13,  -0.34f,0.22f, 0.16f,0.16f,0));                                // F_PUPIL_L
   G.push_back(make(S_CIRC,    PR_NERVOUS,13,   0.34f,0.22f, 0.16f,0.16f,0));                                // F_PUPIL_R
@@ -207,11 +202,11 @@ static void initFigures(){
   G.push_back(make(S_TRI_DOWN,PR_LEADER,1,     0,-1.22f, 0.60f,0.60f,0));                                   // F_TIE_BOTTOM
   G.push_back(make(S_RECT,    PR_STOIC,  14,  -0.90f,0.28f, 0.90f,0.06f,0));                                // F_ARM_L
   G.push_back(make(S_RECT,    PR_STOIC,  14,   0.90f,0.28f, 0.90f,0.06f,0));                                // F_ARM_R
-  G.push_back(make(S_RING,    PR_STOIC,  14,  -0.44f,0.22f, 0.72f,0.72f,0));                                // F_GLAS_L (outer ≈ 0.36)
+  G.push_back(make(S_RING,    PR_STOIC,  14,  -0.44f,0.22f, 0.72f,0.72f,0));                                // F_GLAS_L
   G.push_back(make(S_RING,    PR_STOIC,  14,   0.44f,0.22f, 0.72f,0.72f,0));                                // F_GLAS_R
-  G.push_back(make(S_RECT,    PR_STOIC,  14,   0.00f,0.22f, 0.26f,0.06f,0));                                // F_GLAS_BR (shorter bridge so lenses don’t touch)
+  G.push_back(make(S_RECT,    PR_STOIC,  14,   0.00f,0.22f, 0.26f,0.06f,0));                                // F_GLAS_BR
 
-  // Extras (semi-transparent later)
+  // Extras
   G.push_back(make(S_RECT,    PR_SQUISH, 4,   -0.22f,-0.10f, 0.40f,0.28f, 10));                              // F_CHEEK_L
   G.push_back(make(S_RECT,    PR_SQUISH, 2,    0.22f,-0.12f, 0.42f,0.26f,-10));                              // F_CHEEK_R
   G.push_back(make(S_RECT,    PR_PENDULUM,6,    0.00f,0.46f, 0.42f,0.14f, 0));                               // F_FOREHEAD
@@ -228,10 +223,9 @@ static void initFigures(){
   for(auto& a:G){ a.on=false; a.alpha=0.0f; }
 }
 
-// -------- Panels & spotlight (Monsters-style) --------
+// -------- Panels & spotlight --------
 struct Panel{ float x,y,w,h; float ox,oy; };
 static std::vector<Panel> PAN;
-
 static void buildPanels(){
   PAN.clear();
   int cols=4, rows=3; float W=2.0f/cols, H=2.0f/rows;
@@ -261,57 +255,41 @@ static void spotlight(float cx,float cy,float r){
   glEnd();
 }
 
-// -------- Timeline (~101 beats ≈ 36.1 s) --------
+// -------- Timeline (~106 beats ≈ 37.9 s) --------
 struct Scene{ double b0,b1; };
 static std::vector<Scene> TL;
 static void addScene(double beats){ double b=TL.empty()?0.0:TL.back().b1; TL.push_back({b,b+beats}); }
-
 static void buildTimeline(){
   TL.clear();
-  // sum = 101 beats
+  // sum = 106 beats
   addScene(5);  // 0 Panels in
   addScene(2);  // 1 Tease: face
   addScene(2);  // 2 Tease: mouth
   addScene(2);  // 3 Tease: eye
   addScene(4);  // 4 Panels out
 
-  // Eyes (no glasses)
   addScene(10); // 5 eye rings
   addScene(6);  // 6 pupils
 
-  // Glasses (no eye rings/pupils)
   addScene(9);  // 7 glasses assemble (separate lenses)
 
-  // Mouth
-  addScene(6);  // 8 mouth + lip hl
+  addScene(5);  // 8 eyes+glasses+MOUTH (NEW)
+  addScene(6);  // 9 eyes+glasses+mouth+NOSE with personality (NEW)
 
-  // Nose
-  addScene(6);  // 9 nose + nostrils + hl
-
-  // Face shards
-  addScene(6);  // 10 cheeks
+  addScene(6);  // 10 cheeks (semi-transparent)
   addScene(6);  // 11 forehead & jaw & temples
 
-  // Hair
   addScene(4);  // 12 top hair
   addScene(4);  // 13 side hair
 
-  // Brows (+ show eyes here)
-  addScene(6);  // 14 brows + eyes
+  addScene(6);  // 14 brows + show eyes
 
-  // Ears & Chin
   addScene(5);  // 15 ears & chin
 
-  // Tie
   addScene(5);  // 16 tie & face lift
 
-  // Hop-in tighten (on-beat jumps per piece)
   addScene(7);  // 17 hop-in assembly
-
-  // Reveal wobble (subtle global movement)
-  addScene(4);  // 18 reveal wobble
-
-  // Freeze
+  addScene(4);  // 18 reveal wobble (emphasize key features)
   addScene(2);  // 19 freeze
 }
 static int sceneOf(double bt){
@@ -323,24 +301,11 @@ static int sceneOf(double bt){
 static void drawBG(){ glBegin(GL_QUADS); setRGBA(0,0,0,1); glVertex2f(-1,-1); glVertex2f(+1,-1); glVertex2f(+1,+1); glVertex2f(-1,+1); glEnd(); }
 static void hideAll(){ for(auto& a:G){ a.on=false; a.alpha=0.0f; a.x=a.tx; a.y=a.ty; a.sx=a.tsx; a.sy=a.tsy; a.ang=a.tang; } }
 static void placeOn(int id,double bt,float alpha=1.0f){ auto& a=A(id); a.on=true; a.alpha=alpha; a.x=a.tx; a.y=a.ty; a.sx=a.tsx; a.sy=a.tsy; a.ang=a.tang; applyPersona(a,bt); }
-static void tightenLerp(double u){
-  for(auto& a:G){ a.on=true; a.alpha = (a.alpha>0? a.alpha : 1.0f);
-    a.x=(float)mixd(a.x,a.tx, easeOvershoot(u));
-    a.y=(float)mixd(a.y,a.ty, easeOvershoot(u));
-    a.sx=(float)mixd(a.sx,a.tsx,easeOvershoot(u));
-    a.sy=(float)mixd(a.sy,a.tsy,easeOvershoot(u));
-    a.ang=(float)mixd(a.ang,a.tang,easeOvershoot(u));
-  }
-}
 static float hopWave(double bt, double phase){
-  // hop each beat 1 with a mini pre-hop at beat 4; phase staggers per piece
   double b=ph5(bt+phase);
-  double v = 0.0;
-  // Gaussian-ish pulses
   auto gauss=[&](double x,double mu,double sigma){ double d=(x-mu)/sigma; return exp(-0.5*d*d); };
-  v += 1.0*gauss(b,0.0,0.45); // beat 1
-  v += 0.6*gauss(b,3.0,0.40); // beat 4
-  return (float)v;
+  float v = (float)(1.0*gauss(b,0.0,0.45) + 0.6*gauss(b,3.0,0.40));
+  return v;
 }
 
 // -------- Update per scene --------
@@ -358,7 +323,7 @@ static void updateAndDraw(double bt){
     case 3: hideAll(); placeOn(F_EYE_L,bt,1.0f); break;
     case 4: hideAll(); break;
 
-    // Eyes rings
+    // Eye rings
     case 5:{
       hideAll();
       auto &EL=A(F_EYE_L), &ER=A(F_EYE_R);
@@ -370,7 +335,7 @@ static void updateAndDraw(double bt){
       applyPersona(EL,bt); applyPersona(ER,bt);
     } break;
 
-    // Pupils enter & look — eyes complete
+    // Pupils
     case 6:{
       hideAll(); placeOn(F_EYE_L,bt,1.0f); placeOn(F_EYE_R,bt,1.0f);
       auto &PL=A(F_PUPIL_L), &PR=A(F_PUPIL_R);
@@ -382,7 +347,7 @@ static void updateAndDraw(double bt){
       PR.y = PR.ty + r*(float)sin(2*PI*(bt*0.9));
     } break;
 
-    // Glasses only (separate lenses, no overlap with eyes scene)
+    // Glasses (separate lenses)
     case 7:{
       hideAll();
       auto &GL=A(F_GLAS_L), &GR=A(F_GLAS_R), &GB=A(F_GLAS_BR), &AL=A(F_ARM_L), &AR=A(F_ARM_R);
@@ -400,30 +365,32 @@ static void updateAndDraw(double bt){
       applyPersona(HL,bt); applyPersona(HR,bt);
     } break;
 
-    // Mouth + lip highlight
+    // Eyes + Glasses + Mouth
     case 8:{
-      hideAll(); auto &M=A(F_MOUTH), &LH=A(F_LIP_HL);
-      M.on=LH.on=true; M.alpha=1.0f; LH.alpha=0.85f;
-      float k=(float)easeBackIn(e);
-      M.x=(float)mixd(0.0, M.tx, k); M.y=(float)mixd(-1.0, M.ty, k);
-      LH.x=M.x; LH.y=(float)mixd(-1.0, LH.ty, k);
-      applyPersona(M,bt); applyPersona(LH,bt);
+      hideAll();
+      placeOn(F_EYE_L,bt,1.0f); placeOn(F_EYE_R,bt,1.0f);
+      placeOn(F_PUPIL_L,bt,1.0f); placeOn(F_PUPIL_R,bt,1.0f);
+      placeOn(F_GLAS_L,bt,1.0f); placeOn(F_GLAS_R,bt,1.0f); placeOn(F_GLAS_BR,bt,1.0f);
+      placeOn(F_MOUTH,bt,1.0f); auto &LH=A(F_LIP_HL); LH.on=true; LH.alpha=0.85f; LH.x=LH.tx; LH.y=LH.ty;
+      applyPersona(A(F_MOUTH),bt); applyPersona(LH,bt);
     } break;
 
-    // Nose + nostrils + nose highlight
+    // Nose + previous (personality)
     case 9:{
-      hideAll(); auto &N=A(F_NOSE), &NL=A(F_NOSTRIL_L), &NR=A(F_NOSTRIL_R), &NH=A(F_NOSE_HL);
-      N.on=NL.on=NR.on=NH.on=true; N.alpha=1.0f; NL.alpha=NR.alpha=1.0f; NH.alpha=0.75f;
+      hideAll();
+      int prev[] = {F_EYE_L,F_EYE_R,F_PUPIL_L,F_PUPIL_R,F_GLAS_L,F_GLAS_R,F_GLAS_BR,F_MOUTH};
+      for(int id:prev){ placeOn(id,bt,1.0f); }
+      auto &N=A(F_NOSE); N.on=true; N.alpha=1.0f;
+      auto &NL=A(F_NOSTRIL_L); auto &NR=A(F_NOSTRIL_R); auto &NH=A(F_NOSE_HL);
+      NL.on=NR.on=NH.on=true; NL.alpha=NR.alpha=1.0f; NH.alpha=0.75f;
       float k=(float)easeBackIn(e);
       N.x=(float)mixd(0.0, N.tx, k); N.y=(float)mixd(+1.2, N.ty, k);
-      NL.x=NL.tx; NL.y=NL.ty; NR.x=NR.tx; NR.y=NR.ty; NH.x=NH.tx; NH.y=NH.ty;
-      applyPersona(N,bt);
+      applyPersona(N,bt); applyPersona(NL,bt); applyPersona(NR,bt); applyPersona(NH,bt);
     } break;
 
-    // Cheeks (semi-transparent)
+    // Cheeks
     case 10:{
-      hideAll();
-      auto &CL=A(F_CHEEK_L), &CR=A(F_CHEEK_R);
+      hideAll(); auto &CL=A(F_CHEEK_L), &CR=A(F_CHEEK_R);
       CL.on=CR.on=true; CL.alpha=CR.alpha=0.85f;
       float k=(float)easeExpoOut(e);
       CL.x=(float)mixd(-1.2, CL.tx, k); CR.x=(float)mixd(+1.2, CR.tx, k);
@@ -431,7 +398,7 @@ static void updateAndDraw(double bt){
       applyPersona(CL,bt); applyPersona(CR,bt);
     } break;
 
-    // Forehead & jaw & temples (semi-transparent)
+    // Forehead & jaw & temples
     case 11:{
       hideAll(); auto &Fh=A(F_FOREHEAD), &J=A(F_JAW), &TLs=A(F_TEMP_L), &TRs=A(F_TEMP_R);
       Fh.on=J.on=TLs.on=TRs.on=true; Fh.alpha=J.alpha=0.85f; TLs.alpha=TRs.alpha=0.80f;
@@ -448,14 +415,12 @@ static void updateAndDraw(double bt){
     // Hair sides
     case 13: hideAll(); placeOn(F_HAIR_L,bt,1.0f); placeOn(F_HAIR_R,bt,1.0f); break;
 
-    // Brows + show eyes
+    // Brows + eyes
     case 14:{
       hideAll();
       placeOn(F_BROW_L,bt,1.0f); placeOn(F_BROW_R,bt,1.0f);
       placeOn(F_EYE_L,bt,1.0f); placeOn(F_EYE_R,bt,1.0f);
-      auto &PL=A(F_PUPIL_L), &PR=A(F_PUPIL_R);
-      PL.on=PR.on=true; PL.alpha=PR.alpha=1.0f;
-      PL.x=PL.tx; PL.y=PL.ty; PR.x=PR.tx; PR.y=PR.ty;
+      placeOn(F_PUPIL_L,bt,1.0f); placeOn(F_PUPIL_R,bt,1.0f);
     } break;
 
     // Ears & Chin
@@ -468,15 +433,13 @@ static void updateAndDraw(double bt){
       FACE.x=FACE.tx; FACE.y=(float)mixd(FACE.ty-0.06, FACE.ty, e);
     } break;
 
-    // Hop-in assembly (on-beat jumps per piece, staggered by id)
+    // Hop-in assembly
     case 17:{
-      // bring every piece visible and hop towards target
       for(int i=0;i<F_COUNT;++i){ auto& a=G[i]; a.on=true; if(a.alpha<=0.0f) a.alpha=1.0f; }
       for(int i=0;i<F_COUNT;++i){
         auto& a=G[i];
-        double ph = (i%SIG_BEATS)*0.15; // stagger phase
-        float hop = 0.12f * hopWave(bt, ph) * (1.0f - (float)e); // decaying amplitude
-        // approach target with slight overshoot
+        double ph = (i%SIG_BEATS)*0.15;
+        float hop = 0.12f * hopWave(bt, ph) * (1.0f - (float)e);
         a.x = (float)mixd(a.x, a.tx, easeOvershoot(e));
         a.y = (float)mixd(a.y, a.ty + hop, easeOvershoot(e));
         a.sx= (float)mixd(a.sx,a.tsx, easeOvershoot(e));
@@ -485,16 +448,21 @@ static void updateAndDraw(double bt){
       }
     } break;
 
-    // Reveal wobble (subtle collective motion to "present" the final figure)
+    // Reveal wobble (emphasize eyes, glasses, nose, mouth)
     case 18:{
-      for(int i=0;i<F_COUNT;++i){ auto& a=G[i]; a.on=true; a.alpha = (a.alpha>0? a.alpha : 1.0f);
-        // small synchronized breathing with slight lateral sway
-        float br = 1.0f + 0.02f*(float)pulse1(bt);
-        a.sx = a.tsx * br;
-        a.sy = a.tsy / br;
-        a.x  = a.tx + 0.01f*(float)sin(2*PI*(bt*0.25 + i*0.03));
-        a.y  = a.ty + 0.01f*(float)cos(2*PI*(bt*0.20 + i*0.04));
-        a.ang= a.tang + 2.0f*(float)sin(2*PI*(bt*0.10 + i*0.02));
+      for(int i=0;i<F_COUNT;++i){ auto& a=G[i]; a.on=true; a.alpha = (a.alpha>0? a.alpha : 1.0f); }
+      int keys[] = {F_EYE_L,F_EYE_R,F_PUPIL_L,F_PUPIL_R,F_GLAS_L,F_GLAS_R,F_GLAS_BR,F_MOUTH,F_NOSE};
+      for(int id:keys){
+        auto& k=G[id]; float br = 1.0f + 0.05f*(float)pulse1(bt);
+        k.sx = k.tsx * br; k.sy = k.tsy * (1.0f/br);
+        k.alpha = std::min(1.0f, k.alpha + 0.10f);
+        if(id==F_GLAS_L){ G[F_GLAS_HL_L].on=true; G[F_GLAS_HL_L].alpha=0.80f; }
+        if(id==F_GLAS_R){ G[F_GLAS_HL_R].on=true; G[F_GLAS_HL_R].alpha=0.80f; }
+      }
+      for(int i=0;i<F_COUNT;++i){ auto& a=G[i];
+        a.x  = a.tx + 0.008f*(float)sin(2*PI*(bt*0.20 + i*0.03));
+        a.y  = a.ty + 0.008f*(float)cos(2*PI*(bt*0.17 + i*0.04));
+        a.ang= a.tang + 2.0f*(float)sin(2*PI*(bt*0.08 + i*0.02));
       }
     } break;
 
@@ -555,7 +523,7 @@ int main(int argc,char** argv){
   glutInit(&argc, argv);
   glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGBA);
   glutInitWindowSize(1920,1080);
-  glutCreateWindow("Monsters-style Cubist Intro — Take Five v3 (~36s)");
+  glutCreateWindow("Monsters-style Cubist Intro — Take Five v4 (~38s) FIX");
   glutDisplayFunc(display);
   glutReshapeFunc(reshape);
   glutIdleFunc(idle);
