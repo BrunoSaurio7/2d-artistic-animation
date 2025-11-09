@@ -1,11 +1,15 @@
-// cubist_monsters_intro_v5d.cpp
+// cubist_monsters_intro_v5f.cpp
 // Monsters Inc–style montage -> cubist portrait of Dave Brubeck.
-// v5d: Fix build error (initializer_list vs vector) and keep v5c behavior.
+// v5f changes over v5e:
+//  • Scenes 8 & 9: evitar solapado de círculos (lentes/ojos). Ajusté los "highlights" (GLAS_HL_*)
+//    para que sean más pequeños y no crucen el centro. Mantengo los aros del armazón finos y separados.
+//  • Cejas más altas (más separación vs ojos).
+//  • Pelo superior aún más tranquilo en la escena final y sin micro‑wiggle.
 //
 // Build (Windows / MSYS2):
-//   g++ cubist_monsters_intro_v5d.cpp -lfreeglut -lopengl32 -lglu32 -lwinmm -O2 -o cubist_monsters_intro_v5d.exe
+//   g++ cubist_monsters_intro_v5f.cpp -lfreeglut -lopengl32 -lglu32 -lwinmm -O2 -o cubist_monsters_intro_v5f.exe
 // Linux:
-//   g++ cubist_monsters_intro_v5d.cpp -lglut -lGLU -lGL -O2 -o cubist_monsters_intro_v5d
+//   g++ cubist_monsters_intro_v5f.cpp -lglut -lGLU -lGL -O2 -o cubist_monsters_intro_v5f
 //
 // Controls: P=play/resync audio (Windows), Space=pause, , and . = nudge sync ±20ms, Esc=exit
 
@@ -112,12 +116,12 @@ struct Actor{
   float x,y,sx,sy,ang;         // current
   float tx,ty,tsx,tsy,tang;    // target
   bool on;
-  float a0,a1;                 // arc params
+  float a0,a1;                 // for arcs OR ring radii when S_RING (r0=a0, r1=a1; 0->defaults)
   float gainA, gainB;          // personality gains
 };
 
-static std::vector<Actor> G; // single, global
-static std::vector<float> VIS; // target alpha [0..1] per actor
+static std::vector<Actor> G;
+static std::vector<float> VIS;
 
 static Actor make(Shape s, Persona p,int col,
                   float tx,float ty,float tsx,float tsy,float tang,
@@ -137,7 +141,11 @@ static void drawActor(const Actor& a){
   switch(a.shape){
     case S_RECT: rectWH(1,1); break;
     case S_CIRC: circle(0.5f); break;
-    case S_RING: ring(0.38f,0.50f); break;
+    case S_RING: {
+      float r0 = (a.a0>0.0f? a.a0 : 0.38f);
+      float r1 = (a.a1>0.0f? a.a1 : 0.50f);
+      ring(r0, r1);
+    } break;
     case S_TRI_UP: triUp(0.5f); break;
     case S_TRI_DOWN: triDown(0.5f); break;
     case S_OVAL: oval(0.5f,0.33f); break;
@@ -184,7 +192,7 @@ static Actor& A(int id){ return G[id]; }
 
 static void initFigures(){
   G.clear();
-  // Geometry (align glasses to eyes centers; eyebrows above eyes)
+  // Geometry
   G.push_back(make(S_RECT,    PR_LEADER, 9,    0,-0.05f, 0.80f,0.95f, 0));                                  // F_FACE
   G.push_back(make(S_ARC,     PR_SASSY,  3,    0,-0.32f, 1,1,0, 0,false,-0.25f*PI,0.25f*PI, 1.0f,1.2f));    // F_MOUTH
   G.push_back(make(S_RING,    PR_WOBBLE, 8,   -0.34f,0.22f, 0.60f,0.60f,0));                                // F_EYE_L
@@ -195,19 +203,25 @@ static void initFigures(){
   G.push_back(make(S_RECT,    PR_SPINNER,7,    0,0.60f, 0.90f,0.28f,0));                                    // F_HAIR_TOP
   G.push_back(make(S_RECT,    PR_SNEAK,  7,   -0.46f,0.30f, 0.14f,0.70f,0));                                // F_HAIR_L
   G.push_back(make(S_RECT,    PR_SNEAK,  7,    0.46f,0.30f, 0.14f,0.70f,0));                                // F_HAIR_R
-  G.push_back(make(S_RECT,    PR_SASSY,  6,   -0.35f,0.35f, 0.50f,0.09f,-6));                               // F_BROW_L
-  G.push_back(make(S_RECT,    PR_SASSY,  6,    0.35f,0.33f, 0.50f,0.09f, 6));                               // F_BROW_R
+
+  // Cejas aún más altas
+  G.push_back(make(S_RECT,    PR_SASSY,  6,   -0.35f,0.52f, 0.50f,0.08f,-6));                               // F_BROW_L
+  G.push_back(make(S_RECT,    PR_SASSY,  6,    0.35f,0.51f, 0.50f,0.08f, 6));                               // F_BROW_R
+
   G.push_back(make(S_TRI_UP,  PR_STOIC,10,   -0.66f,0.00f, 0.60f,0.60f,0));                                 // F_EAR_L
   G.push_back(make(S_TRI_UP,  PR_STOIC,10,    0.66f,0.00f, 0.60f,0.60f,180));                               // F_EAR_R
   G.push_back(make(S_OVAL,    PR_STOIC, 9,     0,-0.62f, 0.60f,0.36f,0));                                   // F_CHIN
   G.push_back(make(S_TRI_DOWN,PR_LEADER,1,     0,-0.95f, 0.36f,0.36f,0));                                   // F_TIE_TOP
   G.push_back(make(S_TRI_DOWN,PR_LEADER,1,     0,-1.22f, 0.60f,0.60f,0));                                   // F_TIE_BOTTOM
-  G.push_back(make(S_RECT,    PR_STOIC,  14,  -0.90f,0.28f, 0.90f,0.06f,0));                                // F_ARM_L
-  G.push_back(make(S_RECT,    PR_STOIC,  14,   0.90f,0.28f, 0.90f,0.06f,0));                                // F_ARM_R
-  // Glasses centered on eyes
-  G.push_back(make(S_RING,    PR_STOIC,  14,  -0.34f,0.22f, 0.78f,0.78f,0));                                // F_GLAS_L
-  G.push_back(make(S_RING,    PR_STOIC,  14,   0.34f,0.22f, 0.78f,0.78f,0));                                // F_GLAS_R
-  G.push_back(make(S_RECT,    PR_STOIC,  14,   0.00f,0.22f, 0.28f,0.06f,0));                                // F_GLAS_BR
+
+  // Patas del armazón (delgadas)
+  G.push_back(make(S_RECT,    PR_STOIC,  14,  -0.90f,0.28f, 0.90f,0.045f,0));                               // F_ARM_L
+  G.push_back(make(S_RECT,    PR_STOIC,  14,   0.90f,0.28f, 0.90f,0.045f,0));                               // F_ARM_R
+
+  // Aros del armazón: finos y separados (no se tocan).
+  G.push_back(make(S_RING,    PR_STOIC,  14,  -0.34f,0.22f, 0.66f,0.66f,0, 0,true, 0.48f,0.50f));           // F_GLAS_L
+  G.push_back(make(S_RING,    PR_STOIC,  14,   0.34f,0.22f, 0.66f,0.66f,0, 0,true, 0.48f,0.50f));           // F_GLAS_R
+  G.push_back(make(S_RECT,    PR_STOIC,  14,   0.00f,0.22f, 0.24f,0.045f,0));                               // F_GLAS_BR
 
   // Extras
   G.push_back(make(S_RECT,    PR_SQUISH, 4,   -0.22f,-0.10f, 0.40f,0.28f, 10));                              // F_CHEEK_L
@@ -217,13 +231,16 @@ static void initFigures(){
   G.push_back(make(S_ARC,     PR_SASSY,  11,    0.00f,-0.29f,1,1,0, 0,false, -0.08f*PI, 0.08f*PI, 1.0f,1.4f)); // F_LIP_HL
   G.push_back(make(S_ARC,     PR_STOIC,  14,   -0.04f,0.06f,1,1,0, 0,false, 0.65f*PI,0.85f*PI));             // F_NOSTRIL_L
   G.push_back(make(S_ARC,     PR_STOIC,  14,    0.04f,0.06f,1,1,0, 0,false, 0.15f*PI,0.35f*PI));             // F_NOSTRIL_R
-  G.push_back(make(S_RING,    PR_SQUISH, 8,   -0.34f,0.22f,0.92f,0.92f,0));                                  // F_GLAS_HL_L
-  G.push_back(make(S_RING,    PR_SQUISH, 8,    0.34f,0.22f,0.92f,0.92f,0));                                  // F_GLAS_HL_R
+
+  // Highlights en lentes: más pequeños para NO solapar. Uso radios personalizados y escala neutra.
+  G.push_back(make(S_RING,    PR_SQUISH, 8,   -0.34f,0.22f,1.0f,1.0f,0, 0,true, 0.28f,0.32f));               // F_GLAS_HL_L
+  G.push_back(make(S_RING,    PR_SQUISH, 8,    0.34f,0.22f,1.0f,1.0f,0, 0,true, 0.28f,0.32f));               // F_GLAS_HL_R
+
   G.push_back(make(S_RECT,    PR_WOBBLE, 7,   -0.58f,0.18f, 0.16f,0.32f, 8));                                // F_TEMP_L
   G.push_back(make(S_RECT,    PR_WOBBLE, 7,    0.58f,0.18f, 0.16f,0.32f,-8));                                // F_TEMP_R
   G.push_back(make(S_ARC,     PR_SASSY,  2,     0.00f,0.18f,1,1,0, 0,false, 0.48f*PI,0.52f*PI, 1.0f,1.0f));   // F_NOSE_HL
 
-  for(auto& a:G){ a.on=true; a.alpha=0.0f; } // keep all "on", we control by alpha
+  for(auto& a:G){ a.on=true; a.alpha=0.0f; }
   VIS.assign(F_COUNT, 0.0f);
 }
 
@@ -454,7 +471,14 @@ static void updateAndDraw(double bt){
         auto& kf=G[id]; float br = 1.0f + 0.05f*(float)pulse1(bt);
         kf.sx = kf.tsx * br; kf.sy = kf.tsy * (1.0f/br);
       }
-      for(int i=0;i<F_COUNT;++i){ auto& a=G[i];
+      // Pelo superior mucho más tranquilo y sin micro‑wiggle
+      auto &HT = A(F_HAIR_TOP);
+      HT.ang = HT.tang + 2.0f*(float)sin(2*PI*(bt*0.10)); // ±2° suave
+
+      // gentle micro-wiggle (excluir pelo superior)
+      for(int i=0;i<F_COUNT;++i){
+        if(i==F_HAIR_TOP) continue;
+        auto& a=G[i];
         a.x  = a.tx + 0.008f*(float)sin(2*PI*(bt*0.20 + i*0.03));
         a.y  = a.ty + 0.008f*(float)cos(2*PI*(bt*0.17 + i*0.04));
         a.ang= a.tang + 1.8f*(float)sin(2*PI*(bt*0.08 + i*0.02));
@@ -523,7 +547,7 @@ int main(int argc,char** argv){
   glutInit(&argc, argv);
   glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGBA);
   glutInitWindowSize(1920,1080);
-  glutCreateWindow("Monsters-style Cubist Intro — Take Five v5d");
+  glutCreateWindow("Monsters-style Cubist Intro — Take Five v5f");
   glutDisplayFunc(display);
   glutReshapeFunc(reshape);
   glutIdleFunc(idle);
