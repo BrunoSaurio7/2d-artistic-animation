@@ -1,5 +1,5 @@
 # 2d-artistic-animation
-2D artistic cubist style animation using openGL
+2D artistic animation using openGL
 # Requirements
 
 - OS: Windows 10/11
