@@ -10,14 +10,6 @@ https://youtu.be/MGx3u3h0Yf4
 
 - GPU/Driver: OpenGL 2.1+ (or 3.3 Compatibility profile)
 
-- Compiler: Visual Studio 2019/2022 (MSVC, C++17) or MinGW-w64 (g++)
+- Compiler: Visual Studio 2022
 
-- Libraries (link time):
-
-opengl32.lib (OpenGL)
-
-glfw3.lib (or glfw3dll.lib if using the DLL)
-
-winmm.lib (for MP3 playback via MCI)
-
-user32.lib, gdi32.lib, shell32.lib
+- stb_image.h
