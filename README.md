@@ -21,13 +21,3 @@ glfw3.lib (or glfw3dll.lib if using the DLL)
 winmm.lib (for MP3 playback via MCI)
 
 user32.lib, gdi32.lib, shell32.lib
-
-- Headers:
-
-<Windows.h> (must be included before <GL/gl.h>)
-
-<GLFW/glfw3.h>, <GL/gl.h>
-
-No GLAD required (immediate-mode OpenGL only).
-
-- Assets: Place Take Five.mp3 next to the executable (used for sync/playback).
