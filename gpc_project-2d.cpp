@@ -1,606 +1,356 @@
-#ifdef _WIN32
-#define WIN32_LEAN_AND_MEAN
-#define NOMINMAX        
-#include <Windows.h>        
-#include <mmsystem.h>
-#pragma comment(lib, "winmm.lib")
-#endif
-
-#define GLFW_INCLUDE_NONE
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
+#include <glad/glad.h>
 #include <GLFW/glfw3.h>
-#include <GL/gl.h>              
 
-#include <cmath>
-#include <vector>
-#include <algorithm>
-#include <initializer_list>
-#include <cstdlib>
-#include <cstdio>
+#include <stdio.h>
+#include <stdlib.h> 
+#include <math.h>
 
+// --- CONSTANTES DE PANTALLA ---
+const unsigned int SCR_WIDTH = 800;
+const unsigned int SCR_HEIGHT = 600;
 
-static const double PI = 3.14159265358979323846;
+// --- DEFINICIONES DE LÓGICA ---
+#define PI 3.14159265
 
-// -------- Tiempo / Música --------
-static const double BPM = 168.0;
-static const int SIG_BEATS = 5;
-static double OFFSET_SEC = 0.0;
+// PALETA DE COLORES
+const float COL_FONDO[3] = {0.85f, 0.82f, 0.75f}; 
+const float COL_ROJO[3] = {0.8f, 0.25f, 0.15f};   
+const float COL_CAQUI[3] = {0.55f, 0.4f, 0.25f};  
+const float COL_OSCURO[3] = {0.15f, 0.15f, 0.15f}; 
+const float COL_VERDE_GRIS[3] = {0.3f, 0.35f, 0.3f}; 
+const float COL_BLANCO[3] = {1.0f, 1.0f, 1.0f};    
+const float COL_MADERA[3] = {0.45f, 0.3f, 0.2f};   
+const float COL_METAL[3] = {0.25f, 0.25f, 0.25f};  
+const float COL_FUEGO_INT[3] = {1.0f, 1.0f, 0.0f}; 
+const float COL_FUEGO_EXT[3] = {1.0f, 0.5f, 0.0f}; 
 
-static bool   gPaused = false;
-static double gStart = 0.0;     // tiempo de inicio
-static double gPauseT = 0.0;    // tiempo acumulado cuando pausas
+// ESTADOS
+typedef enum { INTRO, DESARROLLO, DISPAROS, CIERRE } EstadoHistoria;
+EstadoHistoria estadoActual = INTRO;
 
-inline double nowSec() { return glfwGetTime(); }
-inline double animSec() { return gPaused ? gPauseT : (nowSec() - gStart); }
+typedef enum { FIN_ESPERA_PALOMA, FIN_MIRAR, FIN_SOLTAR, FIN_ABRAZO } SubEstadoFin;
+SubEstadoFin subEstadoActual = FIN_ESPERA_PALOMA;
 
-// pausa segura
-static void setPaused(bool p) {
-    if (p == gPaused) return;
-    if (p) { 
-        gPauseT = nowSec() - gStart;
-        gPaused = true;
-    }
-    else {
-        gStart = nowSec() - gPauseT;
-        gPaused = false;
-    }
-}
+// VARIABLES DE TIEMPO Y ESTADO
+double lastTime = 0.0;
+int timerFinal = 0; 
+int timerGlobal = 0;
+int timerDisparos = 0;
+int contadorDisparos = 0;
+int esFogonazo = 0;
 
-inline double beatsFromSec(double t) { return (t - OFFSET_SEC) * (BPM / 60.0); }
-inline double clamp01(double x) { return x < 0 ? 0 : x>1 ? 1 : x; }
-inline double mixd(double a, double b, double t) { return a + (b - a) * t; }
-inline double smooth(double x) { x = clamp01(x); return x * x * (3 - 2 * x); }
-inline double ph5(double bt) { double b = fmod(bt, (double)SIG_BEATS); if (b < 0)b += SIG_BEATS; return b; }
-inline double pulse1(double bt) { double d = fabs(ph5(bt) - 0.0); d = std::min(d, (double)SIG_BEATS - d); double v = std::max(0.0, 1.0 - d / 0.23); return smooth(v); }
-inline double pulse4(double bt) { double d = fabs(ph5(bt) - 3.0); d = std::min(d, (double)SIG_BEATS - d); double v = std::max(0.0, 1.0 - d / 0.20); return smooth(v); }
-inline double easeOvershoot(double t) { t = clamp01(t); double e = smooth(t); return e + 0.12 * sin(2 * PI * e) * (1.0 - e); }
-inline double easeExpoOut(double t) { t = clamp01(t); return 1.0 - pow(2.0, -8.0 * t); }
-inline double easeBackIn(double t) { t = clamp01(t); return t * t * (2.7 * t - 1.7); }
-inline double easeCubic(double t) { t = clamp01(t); return t * t * (3 - 2 * t); }
+// TEXTURAS
+GLuint texturaPlumas = 0;
 
-// -------- Paleta --------
-struct Col { float r, g, b; };
-static Col C[] = {
-  {0.02f,0.02f,0.03f}, // 0 casi negro
-  {0.20f,0.90f,0.95f}, // 1 aqua
-  {1.00f,0.84f,0.10f}, // 2 amarillo vivo
-  {1.00f,0.28f,0.55f}, // 3 rosa intenso
-  {0.10f,0.92f,0.35f}, // 4 lima
-  {0.98f,0.52f,0.16f}, // 5 naranja
-  {0.73f,0.52f,1.00f}, // 6 morado
-  {0.20f,0.65f,1.00f}, // 7 cielo
-  {0.98f,0.98f,1.00f}, // 8 blanco cálido 
-  {0.93f,0.80f,0.70f}, // 9 piel claro
-  {0.80f,0.68f,0.58f}, // 10 piel sombra
-  {1.00f,0.10f,0.10f}, // 11 rojo acento
-  {0.10f,0.10f,0.12f}, // 12 gris oscuro 
-  {0.15f,0.18f,0.25f}, // 13 tinta 
-  {0.25f,0.33f,0.55f}, // 14 azul carbón
-};
+// Animación
+float posPalomaX = 10.0f, posPalomaY = 40.0f;
+float dirPalomaX = 1.0f, dirPalomaY = 0.5f;
+int numPisadasTotal = 0; 
 
-static void setRGBA(float r, float g, float b, float a = 1.0f) { glColor4f(r, g, b, a); }
+float posSolIzqX = -15.0f;
+float posSolDerX = -35.0f;
+int tieneCasco = 0, tieneArmaIzq = 0, tieneArmaDer = 0;
 
-// -------- Primitivas --------
-static void rectWH(float w, float h) {
-    glBegin(GL_TRIANGLE_FAN);
-    glVertex2f(-w * 0.5f, -h * 0.5f); glVertex2f(+w * 0.5f, -h * 0.5f);
-    glVertex2f(+w * 0.5f, +h * 0.5f); glVertex2f(-w * 0.5f, +h * 0.5f);
+const float POS_CASCO = 35.0f;
+const float POS_ARMA_IZQ = 55.0f;
+const float POS_ARMA_DER = 75.0f;
+float anguloBrazo = 0.0f;
+float anguloPierna = 0.0f;
+
+// --- FUNCIONES AUXILIARES DE DIBUJO ---
+
+void colorRGB(const float color[3]) { glColor3fv(color); }
+void colorRGBA(const float color[3], float alpha) { glColor4f(color[0], color[1], color[2], alpha); }
+
+void dibujarRect(float w, float h, const float col[3]) {
+    colorRGB(col);
+    glBegin(GL_QUADS);
+        glVertex2f(-w/2, -h/2); glVertex2f(w/2, -h/2);
+        glVertex2f(w/2, h/2); glVertex2f(-w/2, h/2);
     glEnd();
 }
-static void circle(float r, int seg = 96) {
-    glBegin(GL_TRIANGLE_FAN); glVertex2f(0, 0);
-    for (int i = 0;i <= seg;i++) { float a = 2 * PI * i / seg; glVertex2f(r * cosf(a), r * sinf(a)); } glEnd();
-}
-static void ring(float r0, float r1, int seg = 128) {
-    glBegin(GL_TRIANGLE_STRIP);
-    for (int i = 0;i <= seg;i++) { float a = 2 * PI * i / seg, c = cosf(a), s = sinf(a); glVertex2f(r1 * c, r1 * s); glVertex2f(r0 * c, r0 * s); } glEnd();
-}
-static void triUp(float s) {
-    glBegin(GL_TRIANGLES);
-    glVertex2f(0, s); glVertex2f(-s, -s); glVertex2f(+s, -s); glEnd();
-}
-static void triDown(float s) {
-    glBegin(GL_TRIANGLES);
-    glVertex2f(0, -s); glVertex2f(-s, s); glVertex2f(+s, s); glEnd();
-}
-static void oval(float rx, float ry, int seg = 96) {
-    glBegin(GL_TRIANGLE_FAN); glVertex2f(0, 0);
-    for (int i = 0;i <= seg;i++) { float a = 2 * PI * i / seg; glVertex2f(rx * cosf(a), ry * sinf(a)); } glEnd();
-}
-static void arcBand(float r, float a0, float a1, float th = 0.06f, int seg = 96) {
-    glBegin(GL_TRIANGLE_STRIP);
-    for (int i = 0;i <= seg;i++) {
-        float t = (float)i / seg; float a = a0 + (a1 - a0) * t; float c = cosf(a), s = sinf(a);
-        glVertex2f((r + th) * c, (r + th) * s); glVertex2f((r - th) * c, (r - th) * s);
-    } glEnd();
-}
 
-// -------- Actores / personalidades --------
-enum Shape { S_RECT, S_CIRC, S_RING, S_TRI_UP, S_TRI_DOWN, S_OVAL, S_ARC };
-enum Persona { PR_LEADER, PR_WOBBLE, PR_BOUNCER, PR_SPINNER, PR_SNEAK, PR_SASSY, PR_NERVOUS, PR_STOIC, PR_PENDULUM, PR_SQUISH };
-
-struct Actor {
-    Shape shape; Persona pr; int col; float alpha;
-    float x, y, sx, sy, ang;         // valores actuales
-    float tx, ty, tsx, tsy, tang;    // objetivo
-    bool on;
-    float a0, a1;                 // para arcos O radios del anillo cuando S_RING
-    float gainA, gainB;          // ganancias de personalidad
-};
-
-static std::vector<Actor> G;
-static std::vector<float> VIS;
-
-static Actor make(Shape s, Persona p, int col,
-    float tx, float ty, float tsx, float tsy, float tang,
-    float alpha = 0.0f, bool on = false, float a0 = 0, float a1 = 0,
-    float gA = 1.0f, float gB = 1.0f) {
-    Actor a; a.shape = s; a.pr = p; a.col = col; a.alpha = alpha; a.on = on;
-    a.tx = tx; a.ty = ty; a.tsx = tsx; a.tsy = tsy; a.tang = tang;
-    a.x = tx; a.y = ty; a.sx = tsx; a.sy = tsy; a.ang = tang; a.a0 = a0; a.a1 = a1;
-    a.gainA = gA; a.gainB = gB; return a;
-}
-
-static void drawActor(const Actor& a) {
-    if (a.alpha <= 0.001f) return;
-    glPushMatrix();
-    glTranslatef(a.x, a.y, 0); glRotatef(a.ang, 0, 0, 1); glScalef(a.sx, a.sy, 1);
-    setRGBA(C[a.col].r, C[a.col].g, C[a.col].b, a.alpha);
-    switch (a.shape) {
-    case S_RECT: rectWH(1, 1); break;
-    case S_CIRC: circle(0.5f); break;
-    case S_RING: {
-        float r0 = (a.a0 > 0.0f ? a.a0 : 0.38f);
-        float r1 = (a.a1 > 0.0f ? a.a1 : 0.50f);
-        ring(r0, r1);
-    } break;
-    case S_TRI_UP: triUp(0.5f); break;
-    case S_TRI_DOWN: triDown(0.5f); break;
-    case S_OVAL: oval(0.5f, 0.33f); break;
-    case S_ARC: arcBand(0.45f, a.a0, a.a1, 0.07f); break;
+void dibujarOvalo(float radioX, float radioY, const float col[3]) {
+    colorRGB(col);
+    glBegin(GL_POLYGON);
+    for(int i=0; i<360; i+=15) {
+        float rad = i*PI/180;
+        glVertex2f(radioX*cos(rad), radioY*sin(rad));
     }
+    glEnd();
+}
+
+void cargarTextura() {
+    printf(">> CARGANDO TEXTURA...\n");
+    int width, height, nrChannels;
+    stbi_set_flip_vertically_on_load(1); 
+    unsigned char *data = stbi_load("plumas.jpg", &width, &height, &nrChannels, 0);
+    
+    if (data) {
+        glGenTextures(1, &texturaPlumas);
+        glBindTexture(GL_TEXTURE_2D, texturaPlumas);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        int formato = (nrChannels == 4) ? GL_RGBA : GL_RGB;
+        glTexImage2D(GL_TEXTURE_2D, 0, formato, width, height, 0, formato, GL_UNSIGNED_BYTE, data);
+        stbi_image_free(data);
+        printf(">> Textura Cargada.\n");
+    } else {
+        printf(">> ERROR: No se encontro texturas/plumas.jpg\n");
+    }
+}
+
+// --- OBJETOS Y PERSONAJES ---
+
+void dibujarFogonazo() {
+    glPushMatrix();
+    glTranslatef(9.0f, 0.2f, 0.0f); 
+    glScalef(1.5f + (rand()%10)/10.0f, 1.5f + (rand()%10)/10.0f, 1.0f); 
+    colorRGB(COL_FUEGO_EXT);
+    glBegin(GL_TRIANGLES); 
+        glVertex2f(0, 2); glVertex2f(1, 0); glVertex2f(-1, 0);
+        glVertex2f(0, -2); glVertex2f(1, 0); glVertex2f(-1, 0);
+        glVertex2f(2, 0); glVertex2f(0, 1); glVertex2f(0, -1);
+    glEnd();
+    colorRGB(COL_FUEGO_INT);
+    glScalef(0.6f, 0.6f, 1.0f); 
+    glBegin(GL_POLYGON); glVertex2f(1,1); glVertex2f(-1,1); glVertex2f(-1,-1); glVertex2f(1,-1); glEnd();
+    glColor3f(1.0f, 1.0f, 0.8f);
+    glBegin(GL_LINES); glVertex2f(2.0f, 0.0f); glVertex2f(50.0f, 0.0f); glEnd();
     glPopMatrix();
 }
 
-static void applyPersona(Actor& a, double bt) {
-    double p1 = pulse1(bt), p4 = pulse4(bt);
-    switch (a.pr) {
-    case PR_LEADER:    a.sy = a.tsy * (1.0f + 0.06f * (float)p1 * a.gainA); break;
-    case PR_WOBBLE:    a.ang = a.tang + (18.0f * a.gainA) * (float)sin(2 * PI * (bt * 0.55)); break;
-    case PR_BOUNCER:   a.y = a.ty + (0.15f * a.gainA) * (float)fabs(sin(2 * PI * (bt * 0.9))); break;
-    case PR_SPINNER:   a.ang = a.tang + (140.0f * a.gainA) * (float)(p1 * 0.5 + p4 * 0.5); break;
-    case PR_SNEAK:     a.x = a.tx + (0.12f * a.gainA) * (float)sin(2 * PI * (bt * 0.33)); break;
-    case PR_SASSY:     a.ang = a.tang + (22.0f * a.gainA) * (float)sin(2 * PI * (bt * 0.45));
-        a.y = a.ty + (0.06f * a.gainB) * (float)sin(2 * PI * (bt * 1.0)); break;
-    case PR_NERVOUS:   a.x = a.tx + 0.025f * (float)sin(2 * PI * (bt * 15.0));
-        a.y = a.ty + 0.025f * (float)cos(2 * PI * (bt * 13.0)); break;
-    case PR_PENDULUM:  a.ang = a.tang + (26.0f * a.gainA) * (float)sin(2 * PI * (bt * 0.22)); break;
-    case PR_SQUISH:    a.sx = a.tsx * (1.0f + 0.10f * (float)p1 * a.gainA);
-        a.sy = a.tsy * (1.0f - 0.08f * (float)p1 * a.gainA); break;
-    case PR_STOIC:     a.sx = a.tsx * (1.0f + 0.025f * (float)(p1 * 0.6 + p4 * 0.4));
-        a.sy = a.tsy * (1.0f - 0.020f * (float)(p1 * 0.6 + p4 * 0.4)); break;
-    default: break;
-    }
+void dibujarRifle(int disparando) {
+    glPushMatrix();
+    dibujarRect(10.0f, 1.2f, COL_MADERA);
+    glTranslatef(5.0f, 0.2f, 0.0f);
+    dibujarRect(4.0f, 0.6f, COL_METAL);
+    if (disparando) dibujarFogonazo();
+    glTranslatef(2.0f, 0.0f, 0.0f);
+    glBegin(GL_TRIANGLES); glVertex2f(0.0f, -0.3f); glVertex2f(3.0f, 0.0f); glVertex2f(0.0f, 0.3f); glEnd();
+    glPopMatrix();
 }
 
-// -------- IDs del retrato --------
-enum FigID {
-    F_FACE, F_MOUTH, F_EYE_L, F_EYE_R, F_PUPIL_L, F_PUPIL_R, F_NOSE,
-    F_HAIR_TOP, F_HAIR_L, F_HAIR_R,
-    F_BROW_L, F_BROW_R, F_EAR_L, F_EAR_R, F_CHIN,
-    F_TIE_TOP, F_TIE_BOTTOM,
-    F_ARM_L, F_ARM_R, F_GLAS_L, F_GLAS_R, F_GLAS_BR,
-    F_CHEEK_L, F_CHEEK_R, F_FOREHEAD, F_JAW, F_LIP_HL,
-    F_NOSTRIL_L, F_NOSTRIL_R, F_GLAS_HL_L, F_GLAS_HL_R,
-    F_TEMP_L, F_TEMP_R, F_NOSE_HL,
-    F_COUNT
-};
-
-static Actor& A(int id) { return G[id]; }
-
-static void initFigures() {
-    G.clear();
-    // Geometría
-    G.push_back(make(S_RECT, PR_LEADER, 9, 0, -0.05f, 0.80f, 0.95f, 0));                                  // F_FACE
-    G.push_back(make(S_ARC, PR_SASSY, 3, 0, -0.32f, 1, 1, 0, 0, false, -0.25f * PI, 0.25f * PI, 1.0f, 1.2f));    // F_MOUTH
-    G.push_back(make(S_RING, PR_WOBBLE, 8, -0.34f, 0.22f, 0.60f, 0.60f, 0));                                // F_EYE_L
-    G.push_back(make(S_RING, PR_WOBBLE, 8, 0.34f, 0.22f, 0.60f, 0.60f, 0));                                // F_EYE_R
-    G.push_back(make(S_CIRC, PR_NERVOUS, 13, -0.34f, 0.22f, 0.16f, 0.16f, 0));                                // F_PUPIL_L
-    G.push_back(make(S_CIRC, PR_NERVOUS, 13, 0.34f, 0.22f, 0.16f, 0.16f, 0));                                // F_PUPIL_R
-    G.push_back(make(S_TRI_UP, PR_BOUNCER, 5, 0, 0.06f, 0.44f, 0.44f, 0));                                    // F_NOSE
-    G.push_back(make(S_RECT, PR_SPINNER, 7, 0, 0.60f, 0.90f, 0.28f, 0));                                    // F_HAIR_TOP
-    G.push_back(make(S_RECT, PR_SNEAK, 7, -0.46f, 0.30f, 0.14f, 0.70f, 0));                                // F_HAIR_L
-    G.push_back(make(S_RECT, PR_SNEAK, 7, 0.46f, 0.30f, 0.14f, 0.70f, 0));                                // F_HAIR_R
-
-    // Cejas altas
-    G.push_back(make(S_RECT, PR_SASSY, 6, -0.35f, 0.52f, 0.50f, 0.08f, -6));                               // F_BROW_L
-    G.push_back(make(S_RECT, PR_SASSY, 6, 0.35f, 0.51f, 0.50f, 0.08f, 6));                               // F_BROW_R
-
-    G.push_back(make(S_TRI_UP, PR_STOIC, 10, -0.66f, 0.00f, 0.60f, 0.60f, 0));                                 // F_EAR_L
-    G.push_back(make(S_TRI_UP, PR_STOIC, 10, 0.66f, 0.00f, 0.60f, 0.60f, 180));                               // F_EAR_R
-    G.push_back(make(S_OVAL, PR_STOIC, 9, 0, -0.62f, 0.60f, 0.36f, 0));                                   // F_CHIN
-    G.push_back(make(S_TRI_DOWN, PR_LEADER, 1, 0, -0.95f, 0.36f, 0.36f, 0));                                   // F_TIE_TOP
-    G.push_back(make(S_TRI_DOWN, PR_LEADER, 1, 0, -1.22f, 0.60f, 0.60f, 0));                                   // F_TIE_BOTTOM
-
-    // Patas del armazón
-    G.push_back(make(S_RECT, PR_STOIC, 14, -0.90f, 0.28f, 0.90f, 0.045f, 0));                               // F_ARM_L
-    G.push_back(make(S_RECT, PR_STOIC, 14, 0.90f, 0.28f, 0.90f, 0.045f, 0));                               // F_ARM_R
-
-    // Aros del armazón
-    G.push_back(make(S_RING, PR_STOIC, 14, -0.34f, 0.22f, 0.66f, 0.66f, 0, 0, true, 0.48f, 0.50f));           // F_GLAS_L
-    G.push_back(make(S_RING, PR_STOIC, 14, 0.34f, 0.22f, 0.66f, 0.66f, 0, 0, true, 0.48f, 0.50f));           // F_GLAS_R
-    G.push_back(make(S_RECT, PR_STOIC, 14, 0.00f, 0.22f, 0.24f, 0.045f, 0));                               // F_GLAS_BR
-
-    // Extras
-    G.push_back(make(S_RECT, PR_SQUISH, 4, -0.22f, -0.10f, 0.40f, 0.28f, 10));                              // F_CHEEK_L
-    G.push_back(make(S_RECT, PR_SQUISH, 2, 0.22f, -0.12f, 0.42f, 0.26f, -10));                              // F_CHEEK_R
-    G.push_back(make(S_RECT, PR_PENDULUM, 6, 0.00f, 0.46f, 0.42f, 0.14f, 0));                               // F_FOREHEAD
-    G.push_back(make(S_RECT, PR_WOBBLE, 5, 0.00f, -0.48f, 0.56f, 0.18f, 4));                               // F_JAW
-    G.push_back(make(S_ARC, PR_SASSY, 11, 0.00f, -0.29f, 1, 1, 0, 0, false, -0.08f * PI, 0.08f * PI, 1.0f, 1.4f)); // F_LIP_HL
-    G.push_back(make(S_ARC, PR_STOIC, 14, -0.04f, 0.06f, 1, 1, 0, 0, false, 0.65f * PI, 0.85f * PI));             // F_NOSTRIL_L
-    G.push_back(make(S_ARC, PR_STOIC, 14, 0.04f, 0.06f, 1, 1, 0, 0, false, 0.15f * PI, 0.35f * PI));             // F_NOSTRIL_R
-
-    // Brillos en lentes
-    G.push_back(make(S_RING, PR_SQUISH, 8, -0.34f, 0.22f, 1.0f, 1.0f, 0, 0, true, 0.28f, 0.32f));               // F_GLAS_HL_L
-    G.push_back(make(S_RING, PR_SQUISH, 8, 0.34f, 0.22f, 1.0f, 1.0f, 0, 0, true, 0.28f, 0.32f));               // F_GLAS_HL_R
-
-    G.push_back(make(S_RECT, PR_WOBBLE, 7, -0.58f, 0.18f, 0.16f, 0.32f, 8));                                // F_TEMP_L
-    G.push_back(make(S_RECT, PR_WOBBLE, 7, 0.58f, 0.18f, 0.16f, 0.32f, -8));                                // F_TEMP_R
-    G.push_back(make(S_ARC, PR_SASSY, 2, 0.00f, 0.18f, 1, 1, 0, 0, false, 0.48f * PI, 0.52f * PI, 1.0f, 1.0f));   // F_NOSE_HL
-
-    for (auto& a : G) { a.on = true; a.alpha = 0.0f; }
-    VIS.assign(F_COUNT, 0.0f);
+void dibujarSoldadoIzq(float x, float y, int tieneArma, float animPiernas, float animBrazo, int apuntando, int disparando) {
+    glPushMatrix(); glTranslatef(x, y, 0.0f);
+    glPushMatrix(); glTranslatef(3.0f, 8.0f, -0.1f); glRotatef(-20.0f, 0,0,1); colorRGB(COL_OSCURO);
+    glBegin(GL_QUADS); glVertex2f(0, -0.8); glVertex2f(-6, -0.5); glVertex2f(-6, 0.5); glVertex2f(0, 0.8); glEnd();
+    glTranslatef(-6.0f, 0.0f, 0.0f);
+    glBegin(GL_TRIANGLES); glVertex2f(0, 0.5); glVertex2f(-3, 2.0); glVertex2f(-0.5, 0); glEnd(); 
+    glBegin(GL_TRIANGLES); glVertex2f(0, -0.5); glVertex2f(-3, -2.0); glVertex2f(-0.5, 0); glEnd(); glPopMatrix();
+    glPushMatrix(); glTranslatef(-2.0f, -7.0f, 0.0f); glRotatef(animPiernas, 0,0,1); dibujarRect(2.0f, 6.0f, COL_OSCURO);
+    glTranslatef(0.0f, -3.0f, 0.0f); dibujarOvalo(2.2f, 1.2f, COL_ROJO); glPopMatrix();
+    glPushMatrix(); glTranslatef(2.5f, -7.0f, 0.0f); glRotatef(-animPiernas, 0,0,1); dibujarRect(2.0f, 6.0f, COL_OSCURO);
+    glTranslatef(0.0f, -3.0f, 0.0f); dibujarOvalo(2.2f, 1.2f, COL_ROJO); glPopMatrix();
+    glPushMatrix(); glRotatef(-5.0f, 0,0,1); dibujarOvalo(4.5f, 7.5f, COL_BLANCO); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.0f, 4.5f, 0.1f); colorRGB(COL_VERDE_GRIS); 
+    glBegin(GL_TRIANGLES); glVertex2f(-3.0f, 1.5f); glVertex2f(3.0f, 1.5f); glVertex2f(0.0f, -2.5f); glEnd(); glPopMatrix();
+    glPushMatrix(); glTranslatef(0.5f, 8.0f, 0.1f); dibujarOvalo(2.8f, 3.2f, COL_ROJO); 
+    glTranslatef(0.0f, 2.5f, 0.1f); glRotatef(-10.0f, 0,0,1); dibujarRect(4.0f, 1.5f, COL_BLANCO); 
+    glTranslatef(0.0f, 1.0f, 0.0f); dibujarOvalo(2.0f, 1.0f, COL_BLANCO); glPopMatrix();
+    glPushMatrix(); glTranslatef(3.5f, 2.5f, 0.2f);
+    if (disparando) glTranslatef(-2.0f, 0.0f, 0.0f);
+    if (apuntando) glRotatef(30.0f, 0,0,1); else glRotatef(animBrazo, 0,0,1);
+    glPushMatrix(); glTranslatef(-0.5f, 1.5f,0.1f); glRotatef(-10,0,0,1); dibujarRect(2.5f, 3.0f, COL_BLANCO); glPopMatrix(); 
+    dibujarOvalo(1.5f, 3.5f, COL_ROJO); 
+    if (tieneArma) { glTranslatef(1.0f, -2.0f, 0.0f); glRotatef(70.0f, 0,0,1); dibujarRifle(disparando); }
+    glPopMatrix(); glPopMatrix();
 }
 
-// -------- Paneles --------
-struct Panel { float x, y, w, h; float ox, oy; };
-static std::vector<Panel> PAN;
-static void buildPanels() {
-    PAN.clear();
-    int cols = 6, rows = 3; float W = 2.0f / cols, H = 2.0f / rows;
-    for (int j = 0;j < rows;j++) for (int i = 0;i < cols;i++) {
-        float cx = -1.0f + (i + 0.5f) * W, cy = -1.0f + (j + 0.5f) * H;
-        Panel p{ cx,cy,W * 1.02f,H * 1.02f, (i % 2 ? +1.4f : -1.4f), (j % 2 ? +1.2f : -1.2f) };
-        PAN.push_back(p);
-    }
+void dibujarSoldadoDer(float x, float y, int tieneCasco, int tieneArma, float animPiernas, float animBrazo, int apuntando, int disparando) {
+    glPushMatrix(); glTranslatef(x, y, 0.0f);
+    glPushMatrix(); glTranslatef(-2.0f, -7.0f, 0.0f); glRotatef(animPiernas, 0,0,1); dibujarRect(2.2f, 5.0f, COL_VERDE_GRIS);
+    glTranslatef(0.0f, -3.0f, 0.0f); dibujarOvalo(2.0f, 1.0f, COL_VERDE_GRIS); glPopMatrix();
+    glPushMatrix(); glTranslatef(2.0f, -7.0f, 0.0f); glRotatef(-animPiernas, 0,0,1); dibujarRect(2.2f, 5.0f, COL_VERDE_GRIS);
+    glTranslatef(0.0f, -3.0f, 0.0f); dibujarOvalo(2.0f, 1.0f, COL_VERDE_GRIS); glPopMatrix();
+    colorRGB(COL_CAQUI); glBegin(GL_POLYGON); glVertex2f(-4, 6); glVertex2f(4, 6); glVertex2f(7, -5); glVertex2f(-6, -5); glEnd();
+    glPushMatrix(); glTranslatef(0.0f, 7.0f, 0.1f);
+    if (tieneCasco) {
+        colorRGB(COL_OSCURO); dibujarRect(4.5f, 2.5f, COL_OSCURO);
+        glBegin(GL_TRIANGLES); glVertex2f(-2.25, 1.25); glVertex2f(2.25, 1.25); glVertex2f(0, 5); glEnd();
+        glTranslatef(0.0f, 2.0f, 0.1f); dibujarOvalo(0.8f, 0.8f, COL_ROJO); 
+    } else { dibujarOvalo(2.5f, 3.0f, COL_ROJO); }
+    glPopMatrix();
+    glPushMatrix(); glTranslatef(4.0f, 2.0f, 0.2f);
+    if (disparando) glTranslatef(-2.0f, 0.0f, 0.0f);
+    if (apuntando) glRotatef(40.0f, 0,0,1); else glRotatef(animBrazo, 0,0,1);
+    glPushMatrix(); glTranslatef(0.0f, -2.5f, -0.1f); dibujarOvalo(1.4f, 1.4f, COL_VERDE_GRIS); glPopMatrix();
+    dibujarRect(2.0f, 5.0f, COL_CAQUI); 
+    if (tieneArma) { glTranslatef(0.0f, -2.5f, 0.0f); glRotatef(60.0f, 0,0,1); dibujarRifle(disparando); 
+    glTranslatef(3.0f, 0.5f, 0.1f); colorRGBA(COL_FONDO, 0.8f); dibujarOvalo(1.5f, 1.5f, COL_FONDO); }
+    glPopMatrix(); glPopMatrix();
 }
-static void drawPanels(float k, float alpha = 0.92f) {
-    setRGBA(C[12].r, C[12].g, C[12].b, alpha);
-    for (auto p : PAN) {
-        glPushMatrix();
-        glTranslatef(p.x + (1.0f - k) * p.ox, p.y + (1.0f - k) * p.oy, 0);
-        rectWH(p.w, p.h);
+
+void dibujarPaloma(float x, float y, int mirandoAbajo) {
+    glPushMatrix(); glTranslatef(x, y, 0.0f);
+    if (mirandoAbajo) glRotatef(-30.0f, 0,0,1);
+    float aleteo = sin(timerGlobal * 0.01f) * 3.0f;
+    glEnable(GL_TEXTURE_2D);
+    glBindTexture(GL_TEXTURE_2D, texturaPlumas);
+    glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+    glColor3f(1.0f, 1.0f, 1.0f);
+    glBegin(GL_POLYGON); 
+        glTexCoord2f(0.0f, 0.0f); glVertex2f(-4,0);
+        glTexCoord2f(0.5f, 1.0f); glVertex2f(0,-2);
+        glTexCoord2f(1.0f, 0.0f); glVertex2f(4,0);
+        glTexCoord2f(1.0f, 1.0f); glVertex2f(6,3);
+        glTexCoord2f(0.0f, 1.0f); glVertex2f(-2,4);
+    glEnd();
+    glDisable(GL_TEXTURE_2D);
+    colorRGBA(COL_BLANCO, 0.6f); 
+    glBegin(GL_TRIANGLES); glVertex2f(-2, 2); glVertex2f(-8, 6 + aleteo); glVertex2f(2, 4); glEnd();
+    glBegin(GL_TRIANGLES); glVertex2f(2, 2); glVertex2f(8, 6 + aleteo); glVertex2f(-2, 4); glEnd();
+    glPopMatrix();
+}
+
+// --- ESCENAS ---
+void dibujarIntro() {
+    dibujarPaloma(posPalomaX, posPalomaY, 0);
+    colorRGB(COL_OSCURO);
+    float angulo = atan2(dirPalomaX, dirPalomaY) * 180 / PI;
+    for(int i=0; i < numPisadasTotal; i++) {
+        int esPersona2 = (i >= 12);
+        int indicePaso = esPersona2 ? (i - 12) : i;
+        int esPieIzquierdo = (indicePaso % 2 == 0);
+        float offsetLateralPie = esPieIzquierdo ? -1.5f : 1.5f;
+        float offsetPersona = esPersona2 ? 8.0f : 0.0f; 
+        float distancia = 10.0f + indicePaso * 7.0f; 
+        float pxBase = distancia * dirPalomaX; float pyBase = distancia * dirPalomaY;
+        float offsetTotal = offsetLateralPie + offsetPersona;
+        float pxFinal = pxBase - offsetTotal * dirPalomaY; float pyFinal = pyBase + offsetTotal * dirPalomaX;
+        glPushMatrix(); glTranslatef(pxFinal, pyFinal, 0.0f); glRotatef(angulo - 90, 0,0,1);
+        if (esPersona2) dibujarOvalo(1.4f, 0.7f, COL_VERDE_GRIS); else dibujarRect(2.5f, 1.2f, COL_OSCURO); 
         glPopMatrix();
     }
 }
 
-// -------- Línea de tiempo --------
-struct Scene { double b0, b1; };
-static std::vector<Scene> TL;
-static void addScene(double beats) { double b = TL.empty() ? 0.0 : TL.back().b1; TL.push_back({ b,b + beats }); }
-static void buildTimeline() {
-    TL.clear();
-    addScene(12); // 0 Entrada de paneles
-    addScene(6);  // 1 Presentación: rostro
-    addScene(6);  // 2 Presentación: boca
-    addScene(6);  // 3 Presentación: ojo
-    addScene(8);  // 4 Salida de paneles
-
-    addScene(10); // 5 anillos de ojos
-    addScene(6);  // 6 pupilas
-    addScene(10); // 7 ensamblado de lentes
-
-    addScene(6);  // 8 ojos+lentes+BOCA
-    addScene(8);  // 9 + NARIZ
-
-    addScene(6);  // 10 mejillas
-    addScene(6);  // 11 frente mandíbula  sienes
-
-    addScene(4);  // 12 copete
-    addScene(4);  // 13 laterales del cabello
-
-    addScene(6);  // 14 cejas mostrar ojos
-    addScene(5);  // 15 orejas barbilla
-    addScene(5);  // 16 corbata elevar rostro
-
-    addScene(7);  // 17 ensamblado con saltos
-    addScene(4);  // 18 reveal
-    addScene(2);  // 19 congelar
-}
-static int sceneOf(double bt) {
-    for (size_t i = 0;i < TL.size();++i) if (bt >= TL[i].b0 && bt < TL[i].b1) return (int)i;
-    return (int)TL.size() - 1;
-}
-
-// -------- Utilidades --------
-static void drawBG() {
-    glBegin(GL_QUADS);
-    setRGBA(0, 0, 0, 1);
-    glVertex2f(-1, -1); glVertex2f(+1, -1); glVertex2f(+1, +1); glVertex2f(-1, +1);
-    glEnd();
-}
-
-// visibilidad
-static std::vector<float> VISBUF;
-static void wantOnly(std::initializer_list<int> ids) {
-    std::fill(VIS.begin(), VIS.end(), 0.0f);
-    for (int id : ids) if (id >= 0 && id < F_COUNT) VIS[id] = 1.0f;
-}
-static void wantOnlyVec(const std::vector<int>& ids) {
-    std::fill(VIS.begin(), VIS.end(), 0.0f);
-    for (int id : ids) if (id >= 0 && id < F_COUNT) VIS[id] = 1.0f;
-}
-
-// reflector
-static void spotlight(float cx, float cy, float r) {
-    int seg = 96;
-    glBegin(GL_TRIANGLE_FAN);
-    setRGBA(0, 0, 0, 0); glVertex2f(cx, cy);
-    for (int i = 0;i <= seg;i++) {
-        float a = 2 * PI * i / seg, X = cx + r * cosf(a), Y = cy + r * sinf(a);
-        setRGBA(0, 0, 0, 0.86f); glVertex2f(X, Y);
+void dibujarDesarrollo() {
+    glColor3f(0.8f, 0.77f, 0.7f); glRectf(0.0f, 0.0f, 100.0f, 15.0f);
+    if (!tieneCasco) {
+        glPushMatrix(); glTranslatef(POS_CASCO, 17.0f, 0.0f); glRotatef(-20,0,0,1);
+        colorRGB(COL_OSCURO); dibujarRect(4.0f, 2.0f, COL_OSCURO);
+        glBegin(GL_TRIANGLES); glVertex2f(-2,1); glVertex2f(2,1); glVertex2f(0,4); glEnd(); glPopMatrix();
     }
-    glEnd();
+    if (!tieneArmaIzq) { glPushMatrix(); glTranslatef(POS_ARMA_IZQ, 16.0f, 0.0f); glRotatef(5,0,0,1); dibujarRifle(0); glPopMatrix(); }
+    if (!tieneArmaDer) { glPushMatrix(); glTranslatef(POS_ARMA_DER, 16.0f, 0.0f); glRotatef(-5,0,0,1); dibujarRifle(0); glPopMatrix(); }
+    dibujarSoldadoIzq(posSolIzqX, 25.0f, tieneArmaIzq, anguloPierna, anguloBrazo, 0, 0);
+    dibujarSoldadoDer(posSolDerX, 25.0f, tieneCasco, tieneArmaDer, -anguloPierna, -anguloBrazo, 0, 0);
 }
 
-static float hopWave(double bt, double phase) {
-    double b = ph5(bt + phase);
-    auto gauss = [&](double x, double mu, double sigma) { double d = (x - mu) / sigma; return (float)exp(-0.5 * d * d); };
-    float v = (float)(1.0 * gauss(b, 0.0, 0.40) + 0.7 * gauss(b, 3.0, 0.36));
-    return v;
+void dibujarDisparos() {
+    glColor3f(0.8f, 0.77f, 0.7f); glRectf(0.0f, 0.0f, 100.0f, 15.0f);
+    dibujarSoldadoIzq(posSolIzqX, 25.0f, 1, 0, 0, 1, esFogonazo);
+    dibujarSoldadoDer(posSolDerX, 25.0f, tieneCasco, 1, 0, 0, 1, esFogonazo);
 }
 
-// orden de dibujo con capa superior
-static void drawAllWithTop(double bt) {
-    std::vector<int> tops = { F_BROW_L,F_BROW_R,F_EYE_L,F_EYE_R,F_PUPIL_L,F_PUPIL_R,F_GLAS_L,F_GLAS_R,F_GLAS_BR,F_NOSE,F_MOUTH };
-    auto isTop = [&](int id) { return std::find(tops.begin(), tops.end(), id) != tops.end(); };
-    for (int i = 0;i < F_COUNT;++i) {
-        if (isTop(i)) continue;
-        drawActor(G[i]);
+void dibujarCierre() {
+    glColor3f(0.8f, 0.77f, 0.7f); glRectf(0.0f, 0.0f, 100.0f, 15.0f);
+    if (subEstadoActual >= FIN_SOLTAR) {
+         glPushMatrix(); glTranslatef(50.0f, 16.0f, 0.0f); glRotatef(10,0,0,1); dibujarRifle(0); glPopMatrix();
+         glPushMatrix(); glTranslatef(60.0f, 16.0f, 0.0f); glRotatef(-15,0,0,1); dibujarRifle(0); glPopMatrix();
     }
-    for (int id : tops) {
-        auto& k = G[id]; float br = 1.0f + 0.05f * (float)pulse1(bt);
-        if (id == F_MOUTH || id == F_NOSE) { k.sx = k.tsx * br; k.sy = k.tsy * (1.0f / br); }
-        drawActor(G[id]);
+    int apuntando = (subEstadoActual == FIN_ESPERA_PALOMA || subEstadoActual == FIN_MIRAR);
+    float abrazoAnim = (subEstadoActual == FIN_ABRAZO) ? 45.0f : (apuntando ? 0 : anguloBrazo);
+    float offsetIzq = (subEstadoActual == FIN_ABRAZO) ? 7.0f : 0.0f;
+    float offsetDer = (subEstadoActual == FIN_ABRAZO) ? -7.0f : 0.0f;
+    dibujarSoldadoIzq(posSolIzqX + offsetIzq, 25.0f, (subEstadoActual < FIN_SOLTAR), 0, abrazoAnim, apuntando, 0);
+    dibujarSoldadoDer(posSolDerX + offsetDer, 25.0f, tieneCasco, (subEstadoActual < FIN_SOLTAR), 0, -abrazoAnim, apuntando, 0);
+    dibujarPaloma(posPalomaX, posPalomaY, (subEstadoActual == FIN_MIRAR));
+}
+
+// --- CALLBACKS GLFW ---
+void framebuffer_size_callback(GLFWwindow* window, int width, int height) {
+    glViewport(0, 0, width, height);
+}
+
+// --- LOGICA  ---
+void update(int ms) {
+    timerGlobal += ms;
+    if (estadoActual == INTRO) {
+        posPalomaX += dirPalomaX * 0.6f; posPalomaY += dirPalomaY * 0.6f;
+        if (timerGlobal > 800 * (numPisadasTotal + 1) && numPisadasTotal < 24) numPisadasTotal++;
+        if (timerGlobal > 20000) estadoActual = DESARROLLO;
+    }
+    else if (estadoActual == DESARROLLO) {
+        anguloPierna = sin(timerGlobal * 0.005f) * 30.0f;
+        anguloBrazo = sin(timerGlobal * 0.005f) * 15.0f;
+        if (posSolIzqX < 45.0f) posSolIzqX += 0.25f; if (posSolDerX < 65.0f) posSolDerX += 0.2f;
+        if (posSolIzqX > POS_ARMA_IZQ - 5) tieneArmaIzq = 1; if (posSolDerX > POS_CASCO - 5) tieneCasco = 1; if (posSolDerX > POS_ARMA_DER - 5) tieneArmaDer = 1;
+        if (posSolIzqX >= 45.0f && posSolDerX >= 65.0f) { estadoActual = DISPAROS; timerDisparos = 0; contadorDisparos = 0; }
+    }
+    else if (estadoActual == DISPAROS) {
+        timerDisparos += ms; esFogonazo = 0; 
+        if (timerDisparos > 500 && contadorDisparos == 0) { contadorDisparos++; } if (timerDisparos > 500 && timerDisparos < 600) esFogonazo = 1;
+        if (timerDisparos > 1500 && contadorDisparos == 1) { contadorDisparos++; } if (timerDisparos > 1500 && timerDisparos < 1600) esFogonazo = 1;
+        if (timerDisparos > 2500 && contadorDisparos == 2) { contadorDisparos++; } if (timerDisparos > 2500 && timerDisparos < 2600) esFogonazo = 1;
+        if (timerDisparos > 3500) { estadoActual = CIERRE; subEstadoActual = FIN_ESPERA_PALOMA; timerFinal = 0; posPalomaX = -20.0f; posPalomaY = 60.0f; }
+    }
+    else if (estadoActual == CIERRE) {
+        timerFinal += ms;
+        if (subEstadoActual == FIN_ESPERA_PALOMA) { posPalomaX += 0.5f; posPalomaY += sin(timerGlobal * 0.005f) * 0.1f; if (posPalomaX > 20.0f) { subEstadoActual = FIN_MIRAR; timerFinal = 0; } }
+        else if (subEstadoActual == FIN_MIRAR) { if (timerFinal > 2000) { subEstadoActual = FIN_SOLTAR; timerFinal = 0; } }
+        else if (subEstadoActual == FIN_SOLTAR) { if (timerFinal > 1000) subEstadoActual = FIN_ABRAZO; }
     }
 }
 
-// fundido entre escenas
-static void fadeOverlay(double bt) {
-    int si = sceneOf(bt);
-    double b0 = TL[si].b0, b1 = TL[si].b1;
-    double inDur = std::min(2.0, (b1 - b0) * 0.25);
-    double outDur = inDur;
-    double uIn = clamp01((bt - b0) / std::max(0.0001, inDur));
-    double uOut = clamp01((b1 - bt) / std::max(0.0001, outDur));
-    float a = (float)(0.14 * (1.0 - smooth(uIn)));
-    if ((b1 - bt) < outDur) {
-        float a2 = (float)(0.14 * (1.0 - smooth(uOut)));
-        a = std::max(a, a2);
-    }
-    if (a > 0.001f) {
-        glBegin(GL_QUADS);
-        setRGBA(0, 0, 0, a);
-        glVertex2f(-1, -1); glVertex2f(+1, -1); glVertex2f(+1, +1); glVertex2f(-1, +1);
-        glEnd();
-    }
-}
-
-// -------- Actualización por escena --------
-static void updateAndDraw(double bt) {
-    int si = sceneOf(bt);
-    double b0 = TL[si].b0, b1 = TL[si].b1, u = clamp01((bt - b0) / (b1 - b0)), e = smooth(u);
-
-    // Paneles
-    if (si == 0) buildPanels();
-    if (si <= 4) drawPanels(si == 0 ? (float)easeOvershoot(e) : (si == 4 ? (float)(1.0 - easeOvershoot(e)) : 1.0f), 0.92f);
-    if (si == 5 || si == 7 || si == 14 || si == 17) drawPanels(1.0f, 0.80f);
-
-    // Visibilidad por escena
-    switch (si) {
-    case 0: wantOnly({}); break;
-    case 1: wantOnly({ F_FACE }); break;
-    case 2: wantOnly({ F_MOUTH }); break;
-    case 3: wantOnly({ F_EYE_L }); break;
-    case 4: wantOnly({}); break;
-    case 5: wantOnly({ F_EYE_L,F_EYE_R }); break;
-    case 6: wantOnly({ F_EYE_L,F_EYE_R,F_PUPIL_L,F_PUPIL_R }); break;
-    case 7: wantOnly({ F_GLAS_L,F_GLAS_R,F_GLAS_BR,F_ARM_L,F_ARM_R,F_GLAS_HL_L,F_GLAS_HL_R }); break;
-    case 8: wantOnly({ F_EYE_L,F_EYE_R,F_PUPIL_L,F_PUPIL_R,F_GLAS_L,F_GLAS_R,F_GLAS_BR,F_MOUTH,F_GLAS_HL_L,F_GLAS_HL_R }); break;
-    case 9: wantOnly({ F_EYE_L,F_EYE_R,F_PUPIL_L,F_PUPIL_R,F_GLAS_L,F_GLAS_R,F_GLAS_BR,F_MOUTH,F_NOSE,F_NOSTRIL_L,F_NOSTRIL_R,F_NOSE_HL }); break;
-    case 10: wantOnly({ F_CHEEK_L,F_CHEEK_R }); break;
-    case 11: wantOnly({ F_FOREHEAD,F_JAW,F_TEMP_L,F_TEMP_R }); break;
-    case 12: wantOnly({ F_HAIR_TOP }); break;
-    case 13: wantOnly({ F_HAIR_L,F_HAIR_R }); break;
-    case 14: wantOnly({ F_BROW_L,F_BROW_R,F_EYE_L,F_EYE_R,F_PUPIL_L,F_PUPIL_R }); break;
-    case 15: wantOnly({ F_EAR_L,F_EAR_R,F_CHIN }); break;
-    case 16: wantOnly({ F_FACE,F_TIE_TOP,F_TIE_BOTTOM }); break;
-    case 17: { std::vector<int> ids; for (int i = 0;i < F_COUNT;++i) ids.push_back(i); wantOnlyVec(ids); } break;
-    case 18: { std::vector<int> ids; for (int i = 0;i < F_COUNT;++i) ids.push_back(i); wantOnlyVec(ids); } break;
-    case 19: { std::vector<int> ids; for (int i = 0;i < F_COUNT;++i) ids.push_back(i); wantOnlyVec(ids); } break;
-    }
-
-    // Animaciones específicas
-    switch (si) {
-    case 5: {
-        auto& EL = A(F_EYE_L), & ER = A(F_EYE_R);
-        float k = (float)easeBackIn(e);
-        EL.x = (float)mixd(-1.2, EL.tx, k); EL.y = (float)mixd(+0.9, EL.ty, k);
-        ER.x = (float)mixd(+1.2, ER.tx, k); ER.y = (float)mixd(-0.9, ER.ty, k);
-    } break;
-    case 6: {
-        auto& PL = A(F_PUPIL_L), & PR = A(F_PUPIL_R);
-        float r = 0.07f;
-        PL.x = (float)mixd(-0.9, PL.tx, easeExpoOut(e)) + r * (float)sin(2 * PI * (bt * 0.8));
-        PL.y = PL.ty + r * (float)cos(2 * PI * (bt * 0.6));
-        PR.x = (float)mixd(+0.9, PR.tx, easeExpoOut(e)) + r * (float)cos(2 * PI * (bt * 0.7));
-        PR.y = PR.ty + r * (float)sin(2 * PI * (bt * 0.9));
-    } break;
-    case 7: {
-        auto& GL = A(F_GLAS_L), & GR = A(F_GLAS_R), & GB = A(F_GLAS_BR), & AL = A(F_ARM_L), & AR = A(F_ARM_R);
-        auto& HL = A(F_GLAS_HL_L), & HR = A(F_GLAS_HL_R);
-        float k = (float)easeExpoOut(e);
-        GL.x = (float)mixd(-1.5, GL.tx, k); GL.y = GL.ty;
-        GR.x = (float)mixd(+1.5, GR.tx, k); GR.y = GR.ty;
-        GB.x = (float)mixd(0.0, GB.tx, k); GB.y = GB.ty;
-        AL.x = (float)mixd(-1.7, AL.tx, k); AL.y = AL.ty;
-        AR.x = (float)mixd(+1.7, AR.tx, k); AR.y = AR.ty;
-        HL.x = GL.x; HL.y = GL.y; HR.x = GR.x; HR.y = GR.y;
-    } break;
-    case 9: {
-        auto& N = A(F_NOSE);
-        float k = (float)easeCubic(e);
-        float hops = 0.18f * hopWave(bt, 0.0);
-        N.x = (float)mixd(-1.25, N.tx, k);
-        N.y = (float)mixd(N.ty + 0.30, N.ty, k) + hops;
-        N.ang = (float)mixd(-10.0, 0.0, k);
-        N.sx = N.tsx * (1.0f + 0.05f * (float)pulse1(bt));
-        N.sy = N.tsy * (1.0f - 0.04f * (float)pulse1(bt));
-    } break;
-    case 17: {
-        for (int i = 0;i < F_COUNT;++i) {
-            auto& a = G[i];
-            double ph = (i % SIG_BEATS) * 0.15;
-            float hop = 0.12f * hopWave(bt, ph) * (1.0f - (float)e);
-            a.x = (float)mixd(a.x, a.tx, easeOvershoot(e));
-            a.y = (float)mixd(a.y, a.ty + hop, easeOvershoot(e));
-            a.sx = (float)mixd(a.sx, a.tsx, easeOvershoot(e));
-            a.sy = (float)mixd(a.sy, a.tsy, easeOvershoot(e));
-            a.ang = (float)mixd(a.ang, a.tang, easeOvershoot(e));
-        }
-    } break;
-    case 18: {
-        int keys[] = { F_BROW_L,F_BROW_R,F_EYE_L,F_EYE_R,F_PUPIL_L,F_PUPIL_R,F_GLAS_L,F_GLAS_R,F_GLAS_BR,F_MOUTH,F_NOSE };
-        for (int id : keys) {
-            auto& kf = G[id]; float br = 1.0f + 0.05f * (float)pulse1(bt);
-            kf.sx = kf.tsx * br; kf.sy = kf.tsy * (1.0f / br);
-        }
-        auto& HT = A(F_HAIR_TOP);
-        HT.ang = HT.tang + 2.0f * (float)sin(2 * PI * (bt * 0.10));
-        for (int i = 0;i < F_COUNT;++i) {
-            if (i == F_HAIR_TOP) continue;
-            auto& a = G[i];
-            a.x = a.tx + 0.008f * (float)sin(2 * PI * (bt * 0.20 + i * 0.03));
-            a.y = a.ty + 0.008f * (float)cos(2 * PI * (bt * 0.17 + i * 0.04));
-            a.ang = a.tang + 1.8f * (float)sin(2 * PI * (bt * 0.08 + i * 0.02));
-        }
-    } break;
-    default: break;
-    }
-
-    // Actualizar alpha y aplicar personalidad
-    for (int i = 0;i < F_COUNT;++i) {
-        auto& a = G[i];
-        a.alpha += (VIS[i] - a.alpha) * 0.14f;
-        if (a.alpha < 0.002f) a.alpha = 0.0f;
-        if (a.alpha > 0.998f) a.alpha = 1.0f;
-        applyPersona(a, bt);
-    }
-
-    // Dibujar
-    drawAllWithTop(bt);
-
-    // Reflectores
-    if (si == 1) spotlight(A(F_FACE).tx, A(F_FACE).ty, (float)mixd(1.8, 0.65, e));
-    if (si == 2) spotlight(A(F_MOUTH).tx, A(F_MOUTH).ty, (float)mixd(1.6, 0.60, e));
-    if (si == 3) spotlight(A(F_EYE_L).tx, A(F_EYE_L).ty, (float)mixd(1.4, 0.60, e));
-
-    // Fundidos
-    fadeOverlay(bt);
-}
-
-// ======= VIEW / INPUT (GLFW) =======
-static void reshape(int w, int h) {
-    glViewport(0, 0, w, h);
-    glMatrixMode(GL_PROJECTION); glLoadIdentity();
-    double ar = (double)w / (double)h;
-    if (ar >= 16.0 / 9.0) glOrtho(-ar / (16.0 / 9.0), ar / (16.0 / 9.0), -1, 1, -1, 1);
-    else             glOrtho(-1, 1, -(16.0 / 9.0) / ar, (16.0 / 9.0) / ar, -1, 1);
-    glMatrixMode(GL_MODELVIEW); glLoadIdentity();
-}
-
-static void framebuffer_size_callback(GLFWwindow*, int w, int h) {
-    reshape(w, h);
-}
-
-static void key_callback(GLFWwindow* win, int key, int, int action, int) {
-    if (action == GLFW_PRESS || action == GLFW_REPEAT) {
-        if (key == GLFW_KEY_ESCAPE) glfwSetWindowShouldClose(win, 1);
-        if (key == GLFW_KEY_SPACE)  setPaused(!gPaused);
-        if (key == GLFW_KEY_COMMA)  OFFSET_SEC -= 0.020;
-        if (key == GLFW_KEY_PERIOD) OFFSET_SEC += 0.020;
-        if (key == GLFW_KEY_P) {
-            gStart = nowSec(); gPauseT = 0.0; gPaused = false;
-#ifdef _WIN32
-            mciSendStringA("close tf", NULL, 0, NULL);
-            mciSendStringA("open \"Take Five.mp3\" type mpegvideo alias tf", NULL, 0, NULL);
-            mciSendStringA("play tf from 0", NULL, 0, NULL);
-#endif
-        }
-    }
-}
-
-// ======= RENDER LOOP =======
-static void display(int w, int h) {
-    glDisable(GL_DEPTH_TEST);
-    glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
-    glClearColor(0, 0, 0, 1);
-    glClear(GL_COLOR_BUFFER_BIT);
-
-    glMatrixMode(GL_MODELVIEW); glLoadIdentity();
-    drawBG();
-
-    double t = animSec(), bt = beatsFromSec(t);
-    updateAndDraw(bt);
-}
-
-// ======= MAIN =======
+// --- MAIN ---
 int main() {
-    if (!glfwInit()) {
-        std::fprintf(stderr, "Error: glfwInit()\n");
-        return -1;
-    }
-
+    glfwInit();
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_COMPAT_PROFILE);
 
-    GLFWwindow* win = glfwCreateWindow(720, 600, "GPC Proyecto 2D", nullptr, nullptr);
-    if (!win) {
-        glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 2);
-        glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 1);
-        win = glfwCreateWindow(720, 600, "GPC Proyecto 2D", nullptr, nullptr);
-        if (!win) {
-            std::fprintf(stderr, "Error: glfwCreateWindow()\n");
-            glfwTerminate();
-            return -1;
+    GLFWwindow* window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "Proyecto Lebedev", NULL, NULL);
+    if (window == NULL) {
+        printf("Fallo al crear ventana GLFW\n");
+        glfwTerminate();
+        return -1;
+    }
+    glfwMakeContextCurrent(window);
+    glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
+
+    if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
+        printf("Fallo al inicializar GLAD\n");
+        return -1;
+    }
+
+    glEnable(GL_BLEND); 
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glEnable(GL_DEPTH_TEST);
+    cargarTextura();
+
+    // Loop Principal
+    while (!glfwWindowShouldClose(window)) {
+        double currentTime = glfwGetTime();
+        if (currentTime - lastTime >= 0.016) {
+            update(16);
+            lastTime = currentTime;
+
+            glClearColor(COL_FONDO[0], COL_FONDO[1], COL_FONDO[2], 1.0f);
+            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+            glMatrixMode(GL_PROJECTION);
+            glLoadIdentity();
+            glOrtho(0.0, 100.0, 0.0, 100.0, -10.0, 10.0);
+            glMatrixMode(GL_MODELVIEW);
+            glLoadIdentity();
+
+            switch(estadoActual) {
+                case INTRO: dibujarIntro(); break;
+                case DESARROLLO: dibujarDesarrollo(); break;
+                case DISPAROS: dibujarDisparos(); break;
+                case CIERRE: dibujarCierre(); break;
+            }
+
+            glfwSwapBuffers(window);
+            glfwPollEvents();
         }
     }
 
-    glfwMakeContextCurrent(win);
-    glfwSwapInterval(1);
-    glfwSetKeyCallback(win, key_callback);
-    glfwSetFramebufferSizeCallback(win, framebuffer_size_callback);
-
-    // Setup escena
-    int fbw, fbh; glfwGetFramebufferSize(win, &fbw, &fbh);
-    reshape(fbw, fbh);
-
-    gStart = nowSec(); gPauseT = 0.0; gPaused = false;
-    initFigures();
-    buildPanels();
-    buildTimeline();
-
-    // Loop
-    while (!glfwWindowShouldClose(win)) {
-        glfwGetFramebufferSize(win, &fbw, &fbh);
-        display(fbw, fbh);
-        glfwSwapBuffers(win);
-        glfwPollEvents();
-    }
-
-    glfwDestroyWindow(win);
     glfwTerminate();
     return 0;
 }
